@@ -1,0 +1,26 @@
+# Credentials -- never commit these. See .env.example.
+.env
+*.pem
+cookies.txt
+
+# Collected data
+data/
+hormuz_*.json
+hormuz_*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Tooling / OS
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+*presence*.json
+*presence*.csv

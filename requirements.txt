@@ -1,0 +1,11 @@
+# Global Fishing Watch (gfw.py, main.py presence/events) -- the main source.
+# Official client; needs a free API token, see .env.example.
+gfw-api-python-client>=1.4
+
+# MarineTraffic live map (livemap.py, main.py snapshot/watch).
+# curl_cffi impersonates Chrome's TLS fingerprint, which Cloudflare requires;
+# plain requests/urllib get a 403 there.
+curl_cffi>=0.7
+
+# MarineTraffic reports endpoint (data_get.py)
+requests>=2.31
