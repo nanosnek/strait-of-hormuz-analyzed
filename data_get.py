@@ -28,6 +28,8 @@ import sys
 
 import requests
 
+from source import MARINETRAFFIC_HEADERS, VesselDataSource
+
 REPORTS_URL = "https://www.marinetraffic.com/en/reports/"
 
 # flag,shipname,photo,... -- the column set the project's output.csv is built on
@@ -47,31 +49,6 @@ DEFAULT_PARAMS = {
 }
 
 
-def load_dotenv(path=".env"):
-    """
-    Load KEY=value pairs from a .env file into the environment.
-
-    Blank lines and lines starting with # are skipped, and surrounding quotes
-    are stripped from values. Existing environment variables win, so an
-    exported value overrides the file. Does nothing if the file is absent.
-
-    Args:
-        path (str): Path to the .env file. Defaults to ".env" in the working
-            directory.
-
-    Returns:
-        None
-    """
-    if not os.path.exists(path):
-        return
-    with open(path, encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
-
-
 def build_headers():
     """
     Assemble the request headers, including the captured session.
@@ -85,25 +62,21 @@ def build_headers():
             one. This is a normal setup step rather than a bug, so it exits
             with a readable message instead of a traceback.
     """
-    load_dotenv()
-    cookie = os.environ.get("MT_COOKIE")
-    if not cookie:
-        sys.exit(
-            "MT_COOKIE is not set.\n"
-            "The reports endpoint needs a signed-in session. Copy .env.example "
-            "to .env and paste in a fresh Cookie header, or use gfw.py, which "
-            "needs only a free API token."
-        )
+    cookie = VesselDataSource().require_env(
+        "MT_COOKIE",
+        "The reports endpoint needs a signed-in session. Copy .env.example "
+        "to .env and paste in a fresh Cookie header, or use gfw.py, which "
+        "needs only a free API token.",
+    )
 
     headers = {
         "User-Agent": os.environ.get(
             "MT_USER_AGENT",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
         ),
-        "Accept": "application/json, text/plain, */*",
-        # Same undocumented requirement as the live map: without this header
-        # the site answers with an HTML error page instead of JSON.
-        "X-Requested-With": "XMLHttpRequest",
+        # The X-Requested-With quirk applies to this endpoint too; see
+        # source.py, where it is recorded once for both.
+        **MARINETRAFFIC_HEADERS,
         "Cookie": cookie,
         "Referer": "https://www.marinetraffic.com/en/data/?asset_type=vessels",
     }

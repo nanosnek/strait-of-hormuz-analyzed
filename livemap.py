@@ -26,23 +26,16 @@ try:
 except ImportError:
     sys.exit("livemap.py needs curl_cffi:  pip install -r requirements.txt")
 
-# Region boxes and the BBox class are shared with gfw.py.
-from regions import REGIONS, STRAIT_OF_HORMUZ  # noqa: E402  (after the import guard)
-
+import regions
+from source import MARINETRAFFIC_HEADERS, VesselDataSource  # noqa: E402
 
 BASE_URL = "https://www.marinetraffic.com/getData/get_data_json_4"
+TOTAL_SHIPS_URL = "https://www.marinetraffic.com/getData/get_total_ships"
 
-HEADERS = {
-    # Without this the site returns a 400 HTML error page instead of JSON.
-    "X-Requested-With": "XMLHttpRequest",
-    "Accept": "application/json, text/plain, */*",
-    "Referer": "https://www.marinetraffic.com/en/ais/home",
-}
-
-# Cloudflare blocks on TLS fingerprint, not on cookies or headers: plain
-# requests/urllib/curl get a 403 here no matter what you send. curl_cffi
-# impersonating Chrome gets through with no cookies at all.
-SESSION = cffi_requests.Session(impersonate="chrome")
+# The X-Requested-With quirk is shared with data_get.py, so it lives in
+# source.py; only the Referer is specific to the live map.
+HEADERS = {**MARINETRAFFIC_HEADERS,
+           "Referer": "https://www.marinetraffic.com/en/ais/home"}
 
 # MarineTraffic's coarse ship-type buckets (the SHIPTYPE field).
 SHIP_TYPES = {
@@ -64,10 +57,14 @@ DEFAULT_HIDE_TYPES = [1, 2, 9]  # nav aids, fishing, pleasure
 
 
 # --------------------------------------------------------------------------
-# tile geometry
+# tile geometry and decoding
+#
+# These stay plain functions rather than methods: none of them touch the
+# session or any other source state, and keeping them free means they can be
+# tested without a network object.
 # --------------------------------------------------------------------------
 
-def lonlat_to_tile(lon, lat, zoom):
+def lonlat_to_tile(lon: float, lat: float, zoom: int) -> tuple[int, int]:
     """
     Find the map tile containing a longitude/latitude point.
 
@@ -99,7 +96,7 @@ def lonlat_to_tile(lon, lat, zoom):
     return max(0, min(n - 1, x)), max(0, min(n - 1, y))
 
 
-def tiles_for_bbox(bbox, zoom):
+def tiles_for_bbox(bbox: regions.BBox, zoom: int) -> list[tuple[int, int]]:
     """
     List every tile a bounding box touches.
 
@@ -121,57 +118,7 @@ def tiles_for_bbox(bbox, zoom):
     ]
 
 
-# --------------------------------------------------------------------------
-# fetching
-# --------------------------------------------------------------------------
-
-def fetch_tile(zoom, x, y, filters=None, retries=3):
-    """
-    Download the vessels in a single map tile.
-
-    Failure is reported on stderr and returns an empty list rather than
-    raising, so one unreachable tile doesn't abandon a whole region.
-
-    Args:
-        zoom (int): Map zoom level.
-        x (int): Tile column index, from lonlat_to_tile.
-        y (int): Tile row index, from lonlat_to_tile.
-        filters (dict | None): Optional filter object, URL-encoded into the
-            path. The site's "type" key is an *exclusion* map: the ship-type
-            codes listed there are the ones hidden. Defaults to no filter.
-        retries (int): How many times to try before giving up. Defaults to 3.
-
-    Returns:
-        list[dict]: One raw dict per vessel, with the site's own field names
-            and every value a string. Empty if the tile has no vessels or if
-            every attempt failed.
-    """
-    url = f"{BASE_URL}/z:{zoom}/X:{x}/Y:{y}/station:0"
-    if filters:
-        url += "/filters:" + quote(json.dumps(filters, separators=(",", ":")), safe="")
-
-    problem = None
-    for _ in range(retries):
-        try:
-            response = SESSION.get(url, headers=HEADERS, timeout=30)
-            if response.status_code == 200 and "json" in response.headers.get("content-type", ""):
-                return response.json().get("data", {}).get("rows", [])
-            problem = f"HTTP {response.status_code}"
-            if response.status_code == 403:
-                problem += " (Cloudflare - try a different impersonate profile)"
-        except Exception as error:
-            problem = repr(error)
-        time.sleep(1)
-
-    print(f"  ! tile z:{zoom}/X:{x}/Y:{y} failed: {problem}", file=sys.stderr)
-    return []
-
-
-# --------------------------------------------------------------------------
-# decoding
-# --------------------------------------------------------------------------
-
-def to_number(value):
+def to_number(value: str | None) -> float | None:
     """
     Convert one raw API field to a float.
 
@@ -193,7 +140,7 @@ def to_number(value):
         return None
 
 
-def decode_row(row, observed_at):
+def decode_row(row: dict, observed_at: str) -> dict:
     """
     Convert one raw API row into named fields with real units.
 
@@ -255,113 +202,182 @@ def decode_row(row, observed_at):
 
 
 # --------------------------------------------------------------------------
-# public API
+# the source
 # --------------------------------------------------------------------------
 
-def fetch_region(bbox, zoom=9, delay=0.3, hide_types=None, verbose=True):
+class LiveMapSource(VesselDataSource):
     """
-    Fetch every vessel currently inside a region.
+    Reads current vessel positions from MarineTraffic's live map.
 
-    Walks the tiles covering the box, drops duplicates where tiles overlap,
-    and clips to the box because tiles overspill their nominal bounds.
+    Everything this holds is fixed for a whole run -- the HTTP session, the
+    zoom, the pacing delay, which ship types to hide -- which is why they live
+    on the object rather than being passed to every call. Build one and reuse
+    it; `watch` in particular constructs a single source and polls it, so the
+    session and its connection pool are shared across readings.
 
-    Args:
-        bbox (regions.BBox): The area to cover.
-        zoom (int): API zoom, 3 to 12. Low zoom is truncated server-side: a
-            tile returns roughly the largest 2,400 vessels and silently drops
-            the rest, so a z:7 tile can report a third of what its four z:8
-            children do. If a count looks low, raise this before believing it.
-            Defaults to 9.
-        delay (float): Seconds to wait between requests, so we don't hammer
-            the site. Defaults to 0.3.
-        hide_types (list[int] | None): SHIPTYPE codes to exclude, e.g.
-            [1, 2, 9] to drop navigation aids, fishing boats and pleasure
-            craft. The site's filter is exclusion-only -- there is no way to
-            ask for a single type, which is why fetch_tankers has to filter
-            again afterwards. Defaults to hiding nothing.
-        verbose (bool): Whether to report per-tile progress on stderr.
-            Defaults to True.
-
-    Returns:
-        list[dict]: One decoded vessel per entry, as built by decode_row,
-            deduplicated by ship id. Empty if nothing was in range or every
-            tile request failed.
+    Attributes:
+        session: A curl_cffi session impersonating Chrome. Cloudflare blocks
+            on TLS fingerprint, not on cookies or headers, so plain
+            requests/urllib/curl get a 403 here no matter what you send;
+            impersonating Chrome gets through with no cookies at all.
+        zoom (int): Tile zoom to fetch at.
+        delay (float): Seconds between requests.
+        hide_types (list[int] | None): SHIPTYPE codes excluded server-side.
+        verbose (bool): Inherited; whether progress goes to stderr.
     """
-    tiles = tiles_for_bbox(bbox, zoom)
-    filters = {"type": {str(t): 1 for t in hide_types}} if hide_types else None
 
-    if verbose:
-        print(f"zoom {zoom}: {len(tiles)} tile(s) over "
-              f"[{bbox.west}, {bbox.south}] .. [{bbox.east}, {bbox.north}]", file=sys.stderr)
+    def __init__(self, zoom: int = 9, delay: float = 0.3,
+                 hide_types: list[int] | None = None, retries: int = 3,
+                 verbose: bool = True):
+        """
+        Args:
+            zoom (int): Tile zoom, 3 to 12. Low zoom is truncated server-side:
+                a tile returns roughly the largest 2,400 vessels and silently
+                drops the rest, so a z:7 tile can report a third of what its
+                four z:8 children do. If a count looks low, raise this before
+                believing it. Defaults to 9.
+            delay (float): Seconds to wait between requests, so we don't
+                hammer the site. Defaults to 0.3.
+            hide_types (list[int] | None): SHIPTYPE codes to exclude, e.g.
+                DEFAULT_HIDE_TYPES. The site's filter is exclusion-only --
+                there is no way to ask for a single type, which is why
+                fetch_tankers has to filter again on our side. Defaults to
+                hiding nothing.
+            retries (int): Attempts per tile before giving up. Defaults to 3.
+            verbose (bool): Print per-tile progress. Defaults to True.
+        """
+        super().__init__(verbose)
+        self.session = cffi_requests.Session(impersonate="chrome")
+        self.zoom = zoom
+        self.delay = delay
+        self.hide_types = hide_types
+        self.retries = retries
+        # Fixed for the life of the source, so build it once here rather than
+        # rebuilding the dict on every tile request. Shaped
+        # {"type": {code: 1, ...}} -- the site treats this as an *exclusion*
+        # map, where the codes listed are the ones hidden.
+        self.filters = ({"type": {str(t): 1 for t in hide_types}}
+                        if hide_types else None)
 
-    seen = set()
-    vessels = []
+    def fetch_tile(self, x: int, y: int) -> list[dict]:
+        """
+        Download the vessels in a single map tile.
 
-    for number, (x, y) in enumerate(tiles, start=1):
-        time.sleep(delay)
-        rows = fetch_tile(zoom, x, y, filters)
-        # Stamp per tile, not once for the whole region: a large region at high
-        # zoom is hundreds of tiles and takes minutes, so a single timestamp
-        # would be badly wrong for everything fetched after the first one.
-        observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        Failure is reported on stderr and returns an empty list rather than
+        raising, so one unreachable tile doesn't abandon a whole region.
 
-        added = 0
-        for row in rows:
-            ship_id = row.get("SHIP_ID")
-            if ship_id in seen:
-                continue
-            lat = to_number(row.get("LAT"))
-            lon = to_number(row.get("LON"))
-            if lat is None or lon is None:
-                continue
-            # Tiles overspill their nominal bounds, so clip to the region.
-            if not bbox.contains(lon, lat):
-                continue
-            seen.add(ship_id)
-            vessels.append(decode_row(row, observed_at))
-            added += 1
+        Args:
+            x (int): Tile column index, from lonlat_to_tile.
+            y (int): Tile row index, from lonlat_to_tile.
 
-        if verbose:
-            print(f"  [{number}/{len(tiles)}] {len(rows):5d} rows, "
-                  f"+{added} in-region (total {len(vessels)})", file=sys.stderr)
+        Returns:
+            list[dict]: One raw dict per vessel, with the site's own field
+                names and every value a string. Empty if the tile has no
+                vessels or if every attempt failed.
+        """
+        url = f"{BASE_URL}/z:{self.zoom}/X:{x}/Y:{y}/station:0"
+        if self.filters:
+            url += "/filters:" + quote(
+                json.dumps(self.filters, separators=(",", ":")), safe="")
 
-    return vessels
+        problem = None
+        for _ in range(self.retries):
+            try:
+                response = self.session.get(url, headers=HEADERS, timeout=30)
+                if (response.status_code == 200
+                        and "json" in response.headers.get("content-type", "")):
+                    return response.json().get("data", {}).get("rows", [])
+                problem = f"HTTP {response.status_code}"
+                if response.status_code == 403:
+                    problem += " (Cloudflare - try a different impersonate profile)"
+            except Exception as error:
+                problem = repr(error)
+            time.sleep(1)
 
+        print(f"  ! tile z:{self.zoom}/X:{x}/Y:{y} failed: {problem}", file=sys.stderr)
+        return []
 
-def fetch_tankers(bbox=STRAIT_OF_HORMUZ, **kwargs):
-    """
-    Fetch only the tankers currently inside a region.
+    def fetch_region(self, bbox: regions.BBox) -> list[dict]:
+        """
+        Fetch every vessel currently inside a region.
 
-    The SHIPTYPE check here is what guarantees tankers-only; passing
-    hide_types just shrinks the payload on the wire first, because the site's
-    filter can only exclude types, never select one.
+        Walks the tiles covering the box, drops duplicates where tiles
+        overlap, and clips to the box because tiles overspill their nominal
+        bounds.
 
-    Args:
-        bbox (regions.BBox): The area to cover. Defaults to the Strait of
-            Hormuz.
-        **kwargs: Passed straight through to fetch_region -- zoom, delay,
-            hide_types and verbose.
+        Args:
+            bbox (regions.BBox): The area to cover.
 
-    Returns:
-        list[dict]: Decoded vessels whose ship_type_code is TANKER (8).
-    """
-    return [v for v in fetch_region(bbox, **kwargs) if v["ship_type_code"] == TANKER]
+        Returns:
+            list[dict]: One decoded vessel per entry, as built by decode_row,
+                deduplicated by ship id. Empty if nothing was in range or
+                every tile request failed.
+        """
+        tiles = tiles_for_bbox(bbox, self.zoom)
+        self.log(f"zoom {self.zoom}: {len(tiles)} tile(s) over "
+                 f"[{bbox.west}, {bbox.south}] .. [{bbox.east}, {bbox.north}]")
 
+        seen = set()
+        vessels = []
 
-def total_ships_worldwide():
-    """
-    Fetch the site's global count of currently tracked vessels.
+        for number, (x, y) in enumerate(tiles, start=1):
+            time.sleep(self.delay)
+            rows = self.fetch_tile(x, y)
+            # Stamp per tile, not once for the whole region: a large region at
+            # high zoom is hundreds of tiles and takes minutes, so a single
+            # timestamp would be badly wrong for everything after the first.
+            observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    Mostly useful as a cheap check that the endpoint is reachable and that
-    Cloudflare is still letting us through.
+            added = 0
+            for row in rows:
+                ship_id = row.get("SHIP_ID")
+                if ship_id in seen:
+                    continue
+                lat = to_number(row.get("LAT"))
+                lon = to_number(row.get("LON"))
+                if lat is None or lon is None:
+                    continue
+                # Tiles overspill their nominal bounds, so clip to the region.
+                if not bbox.contains(lon, lat):
+                    continue
+                seen.add(ship_id)
+                vessels.append(decode_row(row, observed_at))
+                added += 1
 
-    Returns:
-        int | None: The worldwide vessel count, or None if the response
-            couldn't be parsed as a number.
-    """
-    response = SESSION.get("https://www.marinetraffic.com/getData/get_total_ships",
-                           headers=HEADERS, timeout=30)
-    try:
-        return int(response.text.strip())
-    except (ValueError, AttributeError):
-        return None
+            self.log(f"  [{number}/{len(tiles)}] {len(rows):5d} rows, "
+                     f"+{added} in-region (total {len(vessels)})")
+
+        return vessels
+
+    def fetch_tankers(self, bbox: regions.BBox) -> list[dict]:
+        """
+        Fetch only the tankers currently inside a region.
+
+        The SHIPTYPE check here is what guarantees tankers-only; hide_types
+        just shrinks the payload on the wire first, because the site's filter
+        can only exclude types, never select one.
+
+        Args:
+            bbox (regions.BBox): The area to cover.
+
+        Returns:
+            list[dict]: Decoded vessels whose ship_type_code is TANKER (8).
+        """
+        return [v for v in self.fetch_region(bbox) if v["ship_type_code"] == TANKER]
+
+    def total_ships_worldwide(self) -> int | None:
+        """
+        Fetch the site's global count of currently tracked vessels.
+
+        Mostly useful as a cheap check that the endpoint is reachable and that
+        Cloudflare is still letting us through.
+
+        Returns:
+            int | None: The worldwide vessel count, or None if the response
+                couldn't be parsed as a number.
+        """
+        response = self.session.get(TOTAL_SHIPS_URL, headers=HEADERS, timeout=30)
+        try:
+            return int(response.text.strip())
+        except (ValueError, AttributeError):
+            return None

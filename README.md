@@ -12,32 +12,120 @@ live "what's in the strait right now" reading.
 
 ## Setup
 
-Use a virtual environment. Installing straight into a system Python fails on
-macOS with Homebrew and on most Linux distributions -- they refuse with
-`error: externally-managed-environment`.
+### Windows (PowerShell)
 
-```bash
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+Open PowerShell **in the project folder**. If you're not sure you're in the
+right place, run `dir` — you should see `main.py` listed.
+
+**1. Make a virtual environment and turn it on.**
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+If that second line fails with *"running scripts is disabled on this system"*,
+Windows is blocking the activate script. Allow it for your own account, then
+try again:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+You know it worked when your prompt starts with `(venv)`. **You have to do
+this in every new PowerShell window** — the `(venv)` prefix is how you tell.
+
+**2. Install the packages.**
+
+```powershell
 pip install -r requirements.txt
 ```
 
-`venv/` is gitignored. Activate it in every new shell, or call the interpreter
-directly as `./venv/bin/python main.py ...`.
+**3. Get a free API token** from
+[globalfishingwatch.org/our-apis](https://globalfishingwatch.org/our-apis/),
+then make your `.env` file:
 
-Get a free Global Fishing Watch API token from
-[their API portal](https://globalfishingwatch.org/our-apis/), then:
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Paste the token after `GFW_API_ACCESS_TOKEN=` on line 5, with no spaces and no
+quotes, then save and close Notepad.
+
+**Copy the token as text.** Do not retype it and do not read it off a
+screenshot — a token has ~870 characters, and OCR silently swaps lookalikes
+(`I` for `l`, `0` for `O`, Cyrillic `З` for `3`). It will fail in a way that
+looks like a code bug.
+
+**4. Check it works.**
+
+```powershell
+python main.py regions
+```
+
+### macOS and Linux
 
 ```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 cp .env.example .env      # paste the token in as GFW_API_ACCESS_TOKEN
 ```
 
-`.env` is gitignored, and each clone needs its own. Nothing else needs
-credentials except `data_get.py`.
+Installing without a virtual environment fails on Homebrew Python and most
+Linux distributions — they refuse with `error: externally-managed-environment`.
 
+### Either way
+
+`venv/` and `.env` are both gitignored. Each clone needs its own `.env`.
 Python 3.11 or newer is required, by the GFW client.
 
+## When something goes wrong on Windows
+
+**`python : The term 'python' is not recognized`**
+Python isn't on your PATH. Try `py` instead of `python` everywhere, or
+reinstall Python with "Add python.exe to PATH" ticked.
+
+**`running scripts is disabled on this system`**
+See step 1 above — run the `Set-ExecutionPolicy` line.
+
+**`ModuleNotFoundError: No module named 'gfwapiclient'`**
+Your venv isn't active, or the packages aren't installed. Check for `(venv)`
+at the start of your prompt; if it's missing, run `.\venv\Scripts\Activate.ps1`
+again, then `pip install -r requirements.txt`.
+
+**`PermissionError: [Errno 13] Permission denied` on a `.csv`**
+The file is open in Excel. Excel locks whatever it has open, so nothing else
+can write to it. Close it and run again:
+
+```powershell
+Get-Process EXCEL -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
+(That discards unsaved changes, so save first if you have edits.) Writing into
+a OneDrive folder can cause the same thing mid-sync.
+
+**`UnicodeEncodeError: 'ascii' codec can't encode character`**
+Your token has non-ASCII characters in it — see step 3. Re-copy it as text.
+
+**`422 Unprocessable Entity`**
+The API rejected a parameter. The message names which one; `--group-by` is
+required and must be one of the five listed values.
+
+**`AttributeError: The geopandas.dataset has been deprecated`**
+You're following a tutorial written for GeoPandas 0.x. See
+[The GeoPandas trap](#the-geopandas-trap) below — nothing is wrong with your
+install.
+
+**`has no latitude/longitude columns`** when mapping
+The presence file was collected without `--grid`, so it has no coordinates.
+Re-collect with `--grid`.
+
 ## Usage
+
+On Windows use `python`; on macOS/Linux use `python3` (or `./venv/bin/python`
+if you'd rather not activate the venv).
 
 ```bash
 python main.py regions                              # list the areas
@@ -51,6 +139,10 @@ python main.py events --type gap --days 90          # vessels going dark
 # MarineTraffic -- live only, no history
 python main.py snapshot                             # what's there right now
 python main.py watch --interval 900                 # keep taking readings
+
+# Map any of the above
+python main.py map presence_hormuz_2026-04-30_2026-07-29.csv
+python main.py map snapshot.csv -o vessels.png
 ```
 
 Everything writes JSON and CSV side by side.
@@ -140,6 +232,65 @@ Columns empty in *every* row are dropped from the CSV, since nothing is lost
 and a spreadsheet with 13 dead columns is hard to read. The JSON keeps the
 full schema.
 
+## Mapping the data
+
+```powershell
+python main.py map presence_hormuz_2026-04-30_2026-07-29.csv
+```
+
+It picks the map type from the columns: a file with `hours` becomes a density
+map (one coloured square per grid cell), anything else becomes a point per
+vessel, coloured by ship type. The image lands next to the CSV unless you pass
+`-o`.
+
+**A presence CSV only has coordinates if you collected it with `--grid`.**
+Without that flag, `lat` and `lon` are empty and there is nothing to plot:
+
+```powershell
+python main.py presence --days 90 --grid --group-by VESSEL_ID
+```
+
+### The GeoPandas trap
+
+Nearly every tutorial gets the basemap like this:
+
+```python
+world = geopandas.read_file(geopandas.datasets.get_path("naturalearth_lowres"))
+```
+
+**That was removed in GeoPandas 1.0** and now raises `AttributeError`. There is
+nothing wrong with your install. `mapping.py` downloads the same Natural Earth
+data from its CDN instead and caches it in `basemap/`, so it is fetched once
+and then works offline. If you need it in a notebook of your own:
+
+```python
+import geopandas as gpd
+land = gpd.read_file("https://naciscdn.org/naturalearth/10m/physical/ne_10m_land.zip")
+```
+
+Use the 10m ("large scale") data, not the usual 110m — the strait is barely two
+degrees across, and at 110m the coastline is too coarse to recognise.
+
+### Using it from a notebook
+
+```python
+import mapping, regions
+
+gdf = mapping.load_csv("presence_hormuz_2026-04-30_2026-07-29.csv")
+m = mapping.RegionMap(regions.STRAIT_OF_HORMUZ)
+m.density(gdf)                 # or m.points(gdf)
+m.save("hormuz.png")
+```
+
+`load_csv` returns an ordinary GeoDataFrame in EPSG:4326, so everything else
+in GeoPandas works on it normally.
+
+Two things about the coordinates worth knowing. The API returns float32, so
+`55.8` arrives as `55.79999923706055` — round before grouping by cell or every
+row looks distinct. And the colour scale is logarithmic by default, because
+the busiest cell off Bandar Abbas holds over a hundred times what open water
+does; on a linear scale the port swamps everything else.
+
 ## Notes on the MarineTraffic live map
 
 The map is drawn from one undocumented endpoint:
@@ -172,10 +323,12 @@ are satellite teasers with no real identity.
 ## Layout
 
 ```
-main.py         CLI: presence / events / snapshot / watch / regions
-gfw.py          Global Fishing Watch -- presence, events, vessel search
-regions.py      the bounding boxes, shared by both sources
-livemap.py      MarineTraffic live-map tiles
+main.py         CLI: presence / events / map / snapshot / watch / regions
+source.py       VesselDataSource -- the base class both sources inherit
+gfw.py          GFWSource: presence, events, vessel search
+regions.py      BBox and the bounding boxes, shared by both sources
+livemap.py      LiveMapSource: MarineTraffic live-map tiles
+mapping.py      RegionMap: draw any collected CSV with GeoPandas
 data_get.py     MarineTraffic reports (needs a session; credentials via .env)
 json_to_csv.py  JSON -> CSV for any of the above
 ```

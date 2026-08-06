@@ -17,6 +17,7 @@ moment you start:
     python main.py snapshot                        # tankers in the strait now
     python main.py watch --interval 900            # keep taking readings
 
+    python main.py map data.csv                    # draw a CSV on the region
     python main.py regions                         # list the areas
 
 Both write JSON and CSV. See README.md for how the two sources differ.
@@ -29,11 +30,12 @@ import os
 import sys
 import time
 
+import livemap
 import regions
 from json_to_csv import write_csv
 
 
-def timestamp():
+def timestamp() -> str:
     """
     Build a filename-safe UTC timestamp for the current moment.
 
@@ -46,7 +48,7 @@ def timestamp():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def date_window(days, latency_days):
+def date_window(days: int, latency_days: int) -> tuple[str, str]:
     """
     Work out the most recent date range the API actually has data for.
 
@@ -65,7 +67,7 @@ def date_window(days, latency_days):
     return str(end - datetime.timedelta(days=days)), str(end)
 
 
-def write(records, json_path, csv_path):
+def write(records: list[dict], json_path: str, csv_path: str | None) -> None:
     """
     Write records to JSON, and optionally to CSV alongside.
 
@@ -99,7 +101,7 @@ def write(records, json_path, csv_path):
         print(f"wrote {len(records)} records -> {csv_path}", file=sys.stderr)
 
 
-def output_paths(args, stem):
+def output_paths(args: argparse.Namespace, stem: str) -> tuple[str, str | None]:
     """
     Decide where a command's output should go.
 
@@ -121,12 +123,12 @@ def output_paths(args, stem):
 # Global Fishing Watch (main source)
 # --------------------------------------------------------------------------
 
-def cmd_presence(args):
+def cmd_presence(args: argparse.Namespace) -> None:
     """
     Run the `presence` subcommand: traffic volume over time.
 
     Args:
-        args (argparse.Namespace): Parsed options -- region, days,
+        args (argparse.Namespace): Parsed options -- region, days, grid,
             temporal_resolution, group_by, all_types, out, no_csv.
 
     Returns:
@@ -134,10 +136,11 @@ def cmd_presence(args):
     """
     import gfw  # imported here so the live-map commands don't need the GFW client
 
+    source = gfw.GFWSource()
     start, end = date_window(args.days, gfw.LATENCY_DAYS)
-    print(f"presence in {args.region}, {start} to {end}", file=sys.stderr)
+    source.log(f"presence in {args.region}, {start} to {end}")
 
-    records = gfw.presence(
+    records = source.presence(
         regions.REGIONS[args.region], start, end,
         temporal_resolution=args.temporal_resolution,
         group_by=args.group_by,
@@ -147,7 +150,7 @@ def cmd_presence(args):
     write(records, *output_paths(args, f"presence_{args.region}_{start}_{end}"))
 
 
-def cmd_events(args):
+def cmd_events(args: argparse.Namespace) -> None:
     """
     Run the `events` subcommand: encounters, loitering, gaps, port visits.
 
@@ -160,10 +163,11 @@ def cmd_events(args):
     """
     import gfw
 
+    source = gfw.GFWSource()
     start, end = date_window(args.days, gfw.LATENCY_DAYS)
-    print(f"{args.type} events in {args.region}, {start} to {end}", file=sys.stderr)
+    source.log(f"{args.type} events in {args.region}, {start} to {end}")
 
-    records = gfw.events(
+    records = source.events(
         regions.REGIONS[args.region], start, end,
         event_type=args.type,
         vessel_types=None if args.all_types else gfw.COMMERCIAL,
@@ -172,33 +176,96 @@ def cmd_events(args):
     write(records, *output_paths(args, f"{args.type}_{args.region}_{start}_{end}"))
 
 
+def cmd_map(args: argparse.Namespace) -> None:
+    """
+    Run the `map` subcommand: draw a collected CSV on a map of the region.
+
+    Args:
+        args (argparse.Namespace): Parsed options -- csv, region, out, show.
+
+    Returns:
+        None
+    """
+    import mapping  # imported here so the other commands don't need geopandas
+
+    mapping.draw(args.csv, args.out, regions.REGIONS[args.region], show=args.show)
+
+
+def cmd_peacetime(args: argparse.Namespace) -> None:
+    """
+    Run the `peacetime` subcommand: create a "peacetime" dataset of vessel
+    presence in the Strait of Hormuz, for comparison with periods of conflict
+    or disruption.
+
+    Args:
+        args (argparse.Namespace): Parsed options -- region, out, no_csv.
+
+    Returns:
+        None
+    """
+    import gfw
+
+    source = gfw.GFWSource()
+    start, end = "2022-01-01", "2022-12-31"
+    source.log(f"peacetime presence in {args.region}, {start} to {end}")
+
+    records = source.presence(
+        regions.REGIONS[args.region], start, end,
+        temporal_resolution="DAILY",
+        group_by="FLAG",
+        vessel_types= None if args.all_types else gfw.COMMERCIAL,
+        spatial_aggregation=True,
+    )
+    write(records, *output_paths(args, f"peacetime_{args.region}_{start}_{end}"))
+
+
+
 # --------------------------------------------------------------------------
 # MarineTraffic live map
 # --------------------------------------------------------------------------
 
-def live_reading(args):
+def live_source(args: argparse.Namespace) -> livemap.LiveMapSource:
+    """
+    Build a LiveMapSource configured from the command line options.
+
+    Build this once and reuse it -- `watch` in particular polls the same
+    source, so its HTTP session and connection pool are shared across every
+    reading rather than rebuilt each time.
+
+    Args:
+        args (argparse.Namespace): Parsed options -- zoom, delay,
+            keep_small_craft, quiet.
+
+    Returns:
+        livemap.LiveMapSource: A configured source.
+    """
+    import livemap  # imported here so the GFW commands don't need curl_cffi
+
+    return livemap.LiveMapSource(
+        zoom=args.zoom,
+        delay=args.delay,
+        hide_types=None if args.keep_small_craft else livemap.DEFAULT_HIDE_TYPES,
+        verbose=not args.quiet,
+    )
+
+
+def live_reading(source: livemap.LiveMapSource, args: argparse.Namespace) -> list[dict]:
     """
     Take one live reading from the MarineTraffic map.
 
-    Shared by the snapshot and watch subcommands.
-
     Args:
-        args (argparse.Namespace): Parsed options -- region, all_types,
-            keep_small_craft, zoom, delay, quiet.
+        source (livemap.LiveMapSource): The source to read from.
+        args (argparse.Namespace): Parsed options -- region, all_types.
 
     Returns:
         list[dict]: Decoded vessels currently in the region.
     """
-    import livemap  # imported here so the GFW commands don't need curl_cffi
-
     bbox = regions.REGIONS[args.region]
-    hide = None if args.keep_small_craft else livemap.DEFAULT_HIDE_TYPES
-    fetch = livemap.fetch_region if args.all_types else livemap.fetch_tankers
-    return fetch(bbox, zoom=args.zoom, delay=args.delay,
-                 hide_types=hide, verbose=not args.quiet)
+    fetch = source.fetch_region if args.all_types else source.fetch_tankers
+    return fetch(bbox)
 
 
-def cmd_snapshot(args):
+def cmd_snapshot(args: argparse.Namespace) -> None:
     """
     Run the `snapshot` subcommand: one live reading, written to disk.
 
@@ -209,15 +276,15 @@ def cmd_snapshot(args):
     Returns:
         None
     """
-    vessels = live_reading(args)
-    write(vessels, *output_paths(args, f"snapshot_{args.region}_{timestamp()}"))
+    vessels = live_reading(live_source(args), args)
+    write(vessels, *output_paths(args, f"hormuz_{args.region}_{timestamp()}"))
 
     moving = [v for v in vessels if (v["speed_knots"] or 0) >= 0.5]
     print(f"\n{len(vessels)} vessels, {len(moving)} under way "
           f"({len(vessels) - len(moving)} stopped or anchored)", file=sys.stderr)
 
 
-def cmd_watch(args):
+def cmd_watch(args: argparse.Namespace) -> None:
     """
     Run the `watch` subcommand: readings on a loop, one file each.
 
@@ -235,13 +302,17 @@ def cmd_watch(args):
     print(f"polling every {args.interval}s, writing to {args.out_dir}/ "
           f"(ctrl-c to stop)", file=sys.stderr)
 
+    # Built once, outside the loop, so every reading reuses the same HTTP
+    # session instead of opening a fresh connection pool each time.
+    source = live_source(args)
+
     reading = 0
     while True:
         reading += 1
         stamp = timestamp()
         print(f"\n--- reading {reading} at {stamp} ---", file=sys.stderr)
         try:
-            vessels = live_reading(args)
+            vessels = live_reading(source, args)
         except Exception as error:
             # Don't let one bad reading end a series that's hours long.
             print(f"  ! reading failed: {error!r}", file=sys.stderr)
@@ -254,7 +325,7 @@ def cmd_watch(args):
         time.sleep(args.interval)
 
 
-def cmd_regions(args):
+def cmd_regions(args: argparse.Namespace) -> None:
     """
     Run the `regions` subcommand: print the available areas and their bounds.
 
@@ -273,7 +344,7 @@ def cmd_regions(args):
 
 # --------------------------------------------------------------------------
 
-def add_shared_args(parser):
+def add_shared_args(parser: argparse.ArgumentParser) -> None:
     """
     Add the options every subcommand takes.
 
@@ -290,7 +361,7 @@ def add_shared_args(parser):
     parser.add_argument("--no-csv", action="store_true")
 
 
-def add_live_args(parser):
+def add_live_args(parser: argparse.ArgumentParser) -> None:
     """
     Add the options specific to the MarineTraffic live-map subcommands.
 
@@ -311,7 +382,7 @@ def add_live_args(parser):
     parser.add_argument("-q", "--quiet", action="store_true")
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     """
     Build the command line parser and its subcommands.
 
@@ -340,6 +411,7 @@ def build_parser():
                           help="break the totals down by this field. The API "
                                "requires one; sum across groups for a total. "
                                "Default FLAG.")
+    presence.add_argument("--peacetime", help="create a 'peacetime' dataset for comparison with periods of conflict", action="store_true")
     presence.set_defaults(func=cmd_presence)
 
     events = sub.add_parser("events", help="[GFW] encounters, loitering, gaps, port visits")
@@ -349,6 +421,13 @@ def build_parser():
     events.add_argument("--days", type=int, default=90)
     events.add_argument("--limit", type=int, default=1000)
     events.set_defaults(func=cmd_events)
+
+    drawing = sub.add_parser("map", help="draw a collected CSV on a map")
+    drawing.add_argument("csv", help="a .csv written by presence/events/snapshot")
+    drawing.add_argument("--region", choices=sorted(regions.REGIONS), default="hormuz")
+    drawing.add_argument("-o", "--out", help="image to write (default: alongside the CSV)")
+    drawing.add_argument("--show", action="store_true", help="also open a window")
+    drawing.set_defaults(func=cmd_map)
 
     snapshot = sub.add_parser("snapshot", help="[MarineTraffic] one live reading")
     add_live_args(snapshot)

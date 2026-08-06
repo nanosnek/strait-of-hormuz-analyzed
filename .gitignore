@@ -3,6 +3,12 @@
 *.pem
 cookies.txt
 
+# Downloaded Natural Earth basemap, cached on first map draw
+basemap/
+
+# Generated maps
+*.png
+
 # Collected data
 data/
 hormuz_*.json
@@ -24,3 +30,5 @@ env/
 .DS_Store
 *presence*.json
 *presence*.csv
+
+EDA.ipynb

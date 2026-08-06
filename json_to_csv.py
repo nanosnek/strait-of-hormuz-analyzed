@@ -88,10 +88,20 @@ def write_csv(ship_data, path, keep_empty_columns=False):
                   file=sys.stderr)
             headers = used
 
-    with open(path, "w", newline="", encoding="utf-8") as c_file:
-        writer = csv.DictWriter(c_file, fieldnames=headers, restval="", extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(ship_data)
+    try:
+        with open(path, "w", newline="", encoding="utf-8") as c_file:
+            writer = csv.DictWriter(c_file, fieldnames=headers, restval="",
+                                    extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(ship_data)
+    except PermissionError:
+        # On Windows, Excel holds an exclusive lock on whatever it has open,
+        # so rewriting a CSV you are looking at fails. OneDrive mid-sync does
+        # the same. Neither is worth losing a long collection run over.
+        print(f"Error: can't write {path} - permission denied.\n"
+              f"  It is probably open in Excel. Close it and run again, or use "
+              f"-o to write somewhere else.", file=sys.stderr)
+        return 0
     return len(ship_data)
 
 

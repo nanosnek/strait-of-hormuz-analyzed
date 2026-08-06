@@ -9,3 +9,9 @@ curl_cffi>=0.7
 
 # MarineTraffic reports endpoint (data_get.py)
 requests>=2.31
+
+# Mapping (mapping.py, main.py map). pandas comes in with geopandas but
+# mapping.py imports it directly, so it is listed.
+geopandas>=1.0
+matplotlib>=3.8
+pandas>=2.0
