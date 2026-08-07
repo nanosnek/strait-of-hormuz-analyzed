@@ -217,10 +217,10 @@ def cmd_peacetime(args: argparse.Namespace) -> None:
 
     records = source.presence(
         regions.REGIONS[args.region], start, end,
-        temporal_resolution="DAILY",
-        group_by="FLAG",
+        temporal_resolution=args.temporal_resolution,
+        group_by=args.group_by,
         vessel_types= None if args.all_types else gfw.COMMERCIAL,
-        spatial_aggregation=True,
+        spatial_aggregation=not args.grid,
     )
     write(records, *output_paths(args, f"peacetime_{args.region}_{start}_{end}"))
 

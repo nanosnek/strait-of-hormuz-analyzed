@@ -11,8 +11,8 @@ basemap/
 
 # Collected data
 data/
-hormuz_*.json
-hormuz_*.csv
+*.json
+*.csv
 
 # Python
 __pycache__/

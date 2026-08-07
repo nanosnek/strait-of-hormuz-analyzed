@@ -31,6 +31,7 @@ Usage:
 import math
 import os
 import sys
+from turtle import title
 
 import geopandas
 import geopandas
@@ -249,7 +250,11 @@ class RegionMap:
             matplotlib.axes.Axes: The axes drawn onto.
         """
         axes = self.base()
-        cells = self._cells(gdf, value)
+
+        if "cell_lon" in gdf.columns and "cell_lat" in gdf.columns:
+            cells = gdf.copy()
+        else:
+            cells = self._cells(gdf, value)
         cells = cells[cells[value] > 0]
 
         norm = None
@@ -296,8 +301,8 @@ class RegionMap:
         # The API returns float32 coordinates, so 55.8 arrives as
         # 55.79999923706055. Round before grouping or every row looks like
         # its own distinct cell.
-        frame["cell_lon"] = frame.geometry.x.round(2)
-        frame["cell_lat"] = frame.geometry.y.round(2)
+        frame["cell_lon"] = frame.geometry.x.round(1)
+        frame["cell_lat"] = frame.geometry.y.round(1)
         totals = frame.groupby(["cell_lon", "cell_lat"], as_index=False)[value].sum()
 
         size = self._cell_size(totals)
@@ -306,28 +311,41 @@ class RegionMap:
         return gpd.GeoDataFrame(totals, geometry=squares, crs=gdf.crs)
 
     def _compare_to_peacetime(self, gdf: geopandas.GeoDataFrame,
-                              peacetime: pandas.DataFrame,
-                              value: str="hours") -> geopandas.GeoDataFrame:
+                              peacetime: geopandas.GeoDataFrame,
+                              value: str="hours", cmap: str="YlOrRd",
+                              log: bool=True) -> geopandas.GeoDataFrame:
         """
-        Compare a gridded presence file to a peacetime baseline.
+        Compare a gridded presence GeoDataFrame to a peacetime baseline to
+        produce a new GeoDataFrame with the difference in presence.
 
         Args:
             gdf (geopandas.GeoDataFrame): Rows from a `presence --grid` file.
-            peacetime (pandas.DataFrame): The baseline, as written by
+            peacetime (geopandas.GeoDataFrame): The baseline, as written by
                 `main.py peacetime`.
             value (str): Column to total per cell. Defaults to "hours".
+            log (bool): Use a logarithmic colour scale. Defaults to True.
 
         Returns:
             geopandas.GeoDataFrame: One square per cell, with the summed
-                value minus the peacetime baseline. Cells with no difference
-                are dropped.
+                value and a new column "difference" = value - peacetime.
         """
-        cells = self._cells(gdf, value)
-        merged = cells.merge(peacetime, how="left", on=["cell_lon", "cell_lat"],
-                             suffixes=("", "_baseline"))
-        merged[value + "_baseline"] = merged[value + "_baseline"].fillna(0)
-        merged["difference"] = merged[value] - merged[value + "_baseline"]
-        return merged[merged["difference"] != 0]
+        # Calculate the total presence for the current data
+        current_totals = self._cells(gdf, value)
+        # Calculate the total presence for the peacetime baseline
+        peacetime_totals = self._cells(peacetime, value)
+
+        current_totals = current_totals[current_totals[value] > 0]
+        peacetime_totals = peacetime_totals[peacetime_totals[value] > 0]
+
+        comparison = current_totals.merge(peacetime_totals,
+                                          on=["cell_lon", "cell_lat"],
+                                          how="inner",
+                                          suffixes=('_current', '_peacetime'))
+        comparison.set_geometry(comparison.geometry_current, inplace=True)
+        comparison["difference"] = comparison[f"{value}_current"] - comparison[f"{value}_peacetime"]
+
+        return comparison
+
 
     @staticmethod
     def _cell_size(totals: pandas.DataFrame) -> float:
@@ -366,14 +384,15 @@ class RegionMap:
 
         if colour_by in gdf.columns:
             for name, group in gdf.groupby(colour_by):
-                group.plot(ax=axes, markersize=group['length_m'].mean() / 10,  # scale down to something visible
+                group.plot(ax=axes,
+                           markersize=size,
                            zorder=3,
                            color=TYPE_COLOURS.get(name, "#c0392b"),
                            label=f"{name} ({len(group)})",
                            edgecolor="white", linewidth=0.3)
             axes.legend(loc="upper right", fontsize=8, framealpha=0.9)
         else:
-            gdf.plot(ax=axes, markersize=gdf['length_m'] / 10, color="#c0392b",  # scale down to something visible
+            gdf.plot(ax=axes, markersize=size, color="#c0392b",
                      zorder=3, edgecolor="white", linewidth=0.3)
 
         self._coastline_on_top()
@@ -423,6 +442,43 @@ def draw(csv_path: str, out_path: str | None=None,
         region_map.points(gdf)
 
     out_path = out_path or os.path.splitext(csv_path)[0] + ".png"
+    region_map.save(out_path)
+    if show:
+        plt.show()
+    return out_path
+
+
+def compare_to_peacetime(csv_path: str,
+                         out_path: str | None=None,
+                         region: regions.BBox=regions.STRAIT_OF_HORMUZ,
+                         show: bool=False) -> str:
+    """
+    Read a gridded presence CSV and draw the difference from a peacetime baseline.
+
+    Args:
+        csv_path (str): A CSV written by main.py presence --grid.
+        peacetime (geopandas.GeoDataFrame): The baseline, as written by
+            `main.py peacetime`.
+        out_path (str | None): Image to write. Defaults to the CSV's name
+            with a .png extension.
+        region (regions.BBox): Area to map. Defaults to the Strait of Hormuz.
+        show (bool): Open an interactive window as well. Defaults to False.
+    Returns:
+        str: The path written.
+    """
+    if not os.path.exists("peacetime_hormuz_2022-01-01_2022-12-31.csv"):
+        sys.exit(
+            "Peacetime baseline file not found. Please run "
+            "'python main.py presence --peacetime --grid --group-by VESSEL_ID' first."
+        )
+
+    gdf = load_csv(csv_path)
+    gdf_peacetime = load_csv("peacetime_hormuz_2022-01-01_2022-12-31.csv")
+    region_map = RegionMap(region)
+    diff_gdf = region_map._compare_to_peacetime(gdf, gdf_peacetime)
+    region_map.density(diff_gdf, value="difference", title="Difference from Peacetime")
+
+    out_path = out_path or os.path.splitext(csv_path)[0] + "_diff.png"
     region_map.save(out_path)
     if show:
         plt.show()
