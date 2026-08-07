@@ -19,7 +19,7 @@ import json
 import sys
 
 
-def load_records(path):
+def load_records(path: str) -> list[dict]:
     """
     Read a JSON file and return the list of records inside it.
 
@@ -43,7 +43,8 @@ def load_records(path):
     return parsed_data["data"]
 
 
-def write_csv(ship_data, path, keep_empty_columns=False):
+def write_csv(ship_data: list[dict], path: str,
+              keep_empty_columns: bool = False) -> int:
     """
     Write records to a CSV file.
 

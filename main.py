@@ -134,6 +134,9 @@ def cmd_presence(args: argparse.Namespace) -> None:
     Returns:
         None
     """
+    if args.peacetime:
+        return cmd_peacetime(args)
+
     import gfw  # imported here so the live-map commands don't need the GFW client
 
     source = gfw.GFWSource()
@@ -161,6 +164,9 @@ def cmd_events(args: argparse.Namespace) -> None:
     Returns:
         None
     """
+    if args.peacetime:
+        return cmd_peacetime_events(args)
+
     import gfw
 
     source = gfw.GFWSource()
@@ -217,6 +223,32 @@ def cmd_peacetime(args: argparse.Namespace) -> None:
         spatial_aggregation=True,
     )
     write(records, *output_paths(args, f"peacetime_{args.region}_{start}_{end}"))
+
+def cmd_peacetime_events(args: argparse.Namespace) -> None:
+    """
+    Run the `peacetime-events` subcommand: create a "peacetime" dataset of vessel
+    events in the Strait of Hormuz, for comparison with periods of conflict
+    or disruption.
+
+    Args:
+        args (argparse.Namespace): Parsed options -- region, out, no_csv.
+
+    Returns:
+        None
+    """
+    import gfw
+
+    source = gfw.GFWSource()
+    start, end = "2022-01-01", "2022-12-31"
+    source.log(f"peacetime events in {args.region}, {start} to {end}")
+
+    records = source.events(
+        regions.REGIONS[args.region], start, end,
+        event_type=args.type,
+        vessel_types= None if args.all_types else gfw.COMMERCIAL,
+        limit=args.limit,
+    )
+    write(records, *output_paths(args, f"peacetime_{args.type}_{args.region}_{start}_{end}"))
 
 
 
@@ -417,9 +449,10 @@ def build_parser() -> argparse.ArgumentParser:
     events = sub.add_parser("events", help="[GFW] encounters, loitering, gaps, port visits")
     add_shared_args(events)
     events.add_argument("--type", default="encounter",
-                        choices=["encounter", "loitering", "port_visit", "gap", "fishing"])
+                        choices=["encounter", "loitering", "port_visit", "gap", "fishing", "all_types"])
     events.add_argument("--days", type=int, default=90)
     events.add_argument("--limit", type=int, default=1000)
+    events.add_argument("--peacetime", help="create a 'peacetime' dataset for comparison with periods of conflict", action="store_true")
     events.set_defaults(func=cmd_events)
 
     drawing = sub.add_parser("map", help="draw a collected CSV on a map")

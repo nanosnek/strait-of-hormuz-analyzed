@@ -306,7 +306,8 @@ class RegionMap:
         return gpd.GeoDataFrame(totals, geometry=squares, crs=gdf.crs)
 
     def _compare_to_peacetime(self, gdf: geopandas.GeoDataFrame,
-                              peacetime: pandas.DataFrame, value: str="hours") -> geopandas.GeoDataFrame:
+                              peacetime: pandas.DataFrame,
+                              value: str="hours") -> geopandas.GeoDataFrame:
         """
         Compare a gridded presence file to a peacetime baseline.
 
@@ -365,14 +366,15 @@ class RegionMap:
 
         if colour_by in gdf.columns:
             for name, group in gdf.groupby(colour_by):
-                group.plot(ax=axes, markersize=size, zorder=3,
+                group.plot(ax=axes, markersize=group['length_m'].mean() / 10,  # scale down to something visible
+                           zorder=3,
                            color=TYPE_COLOURS.get(name, "#c0392b"),
                            label=f"{name} ({len(group)})",
                            edgecolor="white", linewidth=0.3)
             axes.legend(loc="upper right", fontsize=8, framealpha=0.9)
         else:
-            gdf.plot(ax=axes, markersize=size, color="#c0392b", zorder=3,
-                     edgecolor="white", linewidth=0.3)
+            gdf.plot(ax=axes, markersize=gdf['length_m'] / 10, color="#c0392b",  # scale down to something visible
+                     zorder=3, edgecolor="white", linewidth=0.3)
 
         self._coastline_on_top()
         axes.set_title(title or f"{len(gdf):,} vessels")

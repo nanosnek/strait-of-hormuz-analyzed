@@ -49,7 +49,7 @@ DEFAULT_PARAMS = {
 }
 
 
-def build_headers():
+def build_headers() -> dict:
     """
     Assemble the request headers, including the captured session.
 
@@ -86,7 +86,7 @@ def build_headers():
     return headers
 
 
-def fetch_reports(params=None):
+def fetch_reports(params: dict | None = None) -> dict:
     """
     Download the tanker report for the Persian and Oman gulfs.
 

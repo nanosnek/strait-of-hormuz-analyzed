@@ -79,9 +79,11 @@ STRAIT_OF_HORMUZ = BBox(55.20, 25.40, 57.40, 27.30)
 # filter that data_get.py uses against the reports endpoint.
 PERSIAN_GULF = BBox(47.50, 23.50, 56.60, 30.50)
 GULF_OF_OMAN = BBox(56.00, 22.00, 61.50, 27.20)
+ALL_REGIONS = BBox(47.50, 22.00, 61.50, 30.50)
 
 REGIONS = {
     "hormuz": STRAIT_OF_HORMUZ,
     "persian-gulf": PERSIAN_GULF,
     "oman-gulf": GULF_OF_OMAN,
+    "all-regions": ALL_REGIONS,
 }
