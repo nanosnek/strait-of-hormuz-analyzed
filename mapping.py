@@ -60,7 +60,7 @@ BORDERS_URL = ("https://naciscdn.org/naturalearth/10m/cultural/"
 CACHE_DIR = "basemap"
 
 # Colours for the live-snapshot point map, by MarineTraffic ship type name.
-TYPE_COLOURS = {
+TYPE_COLORS = {
     "Tanker": "#c0392b",
     "Cargo": "#e67e22",
     "Passenger": "#2980b9",
@@ -365,15 +365,15 @@ class RegionMap:
         gaps = [round(b - a, 4) for a, b in zip(unique, unique[1:])]
         return min(g for g in gaps if g > 0) if any(g > 0 for g in gaps) else 0.1
 
-    def points(self, gdf: geopandas.GeoDataFrame, colour_by: str="ship_type",
+    def points(self, gdf: geopandas.GeoDataFrame, color_by: str="ship_type",
                title: str | None=None, size: float=14) -> matplotlib.axes.Axes:
         """
         Draw one point per vessel or event.
 
         Args:
             gdf (geopandas.GeoDataFrame): Rows with point geometry.
-            colour_by (str): Column to colour by, if present. Defaults to
-                "ship_type"; falls back to a single colour when absent.
+            color_by (str): Column to color by, if present. Defaults to
+                "ship_type"; falls back to a single color when absent.
             title (str | None): Figure title. Generated when omitted.
             size (float): Marker size. Defaults to 14.
 
@@ -381,13 +381,19 @@ class RegionMap:
             matplotlib.axes.Axes: The axes drawn onto.
         """
         axes = self.base()
+        if color_by != "ship_type":
+            pallette = plt.get_cmap("tab10_r").colors
+            color = {name: pallette[i % len(pallette)] for i,
+                     name in enumerate(gdf[color_by].unique())}
+        else:
+            color=TYPE_COLORS.get(name, "#c0392b")
 
-        if colour_by in gdf.columns:
-            for name, group in gdf.groupby(colour_by):
+        if color_by in gdf.columns:
+            for name, group in gdf.groupby(color_by):
                 group.plot(ax=axes,
                            markersize=size,
                            zorder=3,
-                           color=TYPE_COLOURS.get(name, "#c0392b"),
+                           color=color,
                            label=f"{name} ({len(group)})",
                            edgecolor="white", linewidth=0.3)
             axes.legend(loc="upper right", fontsize=8, framealpha=0.9)
@@ -418,7 +424,7 @@ class RegionMap:
         print(f"wrote {path}", file=sys.stderr)
 
 
-def draw(csv_path: str, out_path: str | None=None,
+def draw(csv_path: str, out_path: str | None=None, color_by: str="ship_type",
          region: regions.BBox=regions.STRAIT_OF_HORMUZ, show: bool=False) -> str:
     """
     Read a CSV and draw whichever kind of map suits it.
@@ -439,7 +445,7 @@ def draw(csv_path: str, out_path: str | None=None,
     if "hours" in gdf.columns:
         region_map.density(gdf)
     else:
-        region_map.points(gdf)
+        region_map.points(gdf, color_by=color_by)
 
     out_path = out_path or os.path.splitext(csv_path)[0] + ".png"
     region_map.save(out_path)
