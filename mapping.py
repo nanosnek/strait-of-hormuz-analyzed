@@ -14,7 +14,8 @@ kind it is from the columns present:
 One thing worth knowing before you follow any tutorial: **geopandas.datasets
 was removed in GeoPandas 1.0**, so the usual
 
-    world = geopandas.read_file(geopandas.datasets.get_path("naturalearth_lowres"))
+    world =
+    geopandas.read_file(geopandas.datasets.get_path("naturalearth_lowres"))
 
 raises AttributeError on any current install. This module downloads the same
 Natural Earth data straight from its CDN instead, and caches it under
@@ -31,12 +32,12 @@ Usage:
 import math
 import os
 import sys
-from turtle import title
 
-import geopandas
+
 import geopandas
 import matplotlib
 import pandas
+import seaborn
 
 try:
     import geopandas as gpd
@@ -44,6 +45,8 @@ try:
     from matplotlib.colors import LogNorm
     import pandas as pd
     from shapely.geometry import box
+    import seaborn as sns
+
 except ImportError:
     sys.exit("mapping.py needs geopandas and matplotlib:  "
              "pip install -r requirements.txt")
@@ -95,8 +98,10 @@ def load_csv(path: str) -> geopandas.GeoDataFrame:
     """
     frame = pd.read_csv(path)
 
-    lat_col = next((c for c in ("lat", "position.lat", "latitude") if c in frame), None)
-    lon_col = next((c for c in ("lon", "position.lon", "longitude") if c in frame), None)
+    lat_col = next((c for c in ("lat", "position.lat", "latitude")
+                    if c in frame), None)
+    lon_col = next((c for c in ("lon", "position.lon", "longitude")
+                    if c in frame), None)
     if not lat_col or not lon_col:
         sys.exit(
             f"{path} has no latitude/longitude columns (found: "
@@ -126,8 +131,8 @@ class RegionMap:
         borders (geopandas.GeoDataFrame): Country outlines clipped to region.
     """
 
-    def __init__(self, bbox: regions.BBox=regions.STRAIT_OF_HORMUZ,
-                 cache_dir: str=CACHE_DIR, pad: float=0.1) -> None:
+    def __init__(self, bbox: regions.BBox = regions.STRAIT_OF_HORMUZ,
+                 cache_dir: str = CACHE_DIR, pad: float = 0.1) -> None:
         """
         Args:
             bbox (regions.BBox): Area to map. Defaults to the Strait of
@@ -141,11 +146,13 @@ class RegionMap:
         self.bbox = bbox
         self.pad = pad
         self.land = self._clipped("ne_10m_land", LAND_URL, cache_dir)
-        self.borders = self._clipped("ne_10m_countries", BORDERS_URL, cache_dir)
+        self.borders = self._clipped("ne_10m_countries",
+                                     BORDERS_URL, cache_dir)
         self._figure = None
         self._axes = None
 
-    def _clipped(self, name: str, url: str, cache_dir: str) -> geopandas.GeoDataFrame:
+    def _clipped(self, name: str, url: str,
+                 cache_dir: str) -> geopandas.GeoDataFrame:
         """
         Load one Natural Earth layer, clipped to this region.
 
@@ -193,7 +200,8 @@ class RegionMap:
         b, p = self.bbox, self.pad
         return (b.west - p, b.south - p, b.east + p, b.north + p)
 
-    def base(self, figsize: tuple[float, float]=(11, 9)) -> matplotlib.axes.Axes:
+    def base(self,
+             figsize: tuple[float, float] = (11, 9)) -> matplotlib.axes.Axes:
         """
         Start a figure with the coastline drawn, ready for data on top.
 
@@ -226,8 +234,10 @@ class RegionMap:
         self._axes.set_aspect(1 / max(0.1, abs(math.cos(math.radians(mid)))))
         return self._axes
 
-    def density(self, gdf: geopandas.GeoDataFrame, value: str="hours",
-                title: str | None=None, cmap: str="YlOrRd", log: bool=True) -> matplotlib.axes.Axes:
+    def density(self, gdf: geopandas.GeoDataFrame, value: str = "hours",
+                plot_title: str | None = None,
+                cmap: str = "YlOrRd",
+                log: bool = True) -> matplotlib.axes.Axes:
         """
         Draw gridded presence as coloured cells.
 
@@ -259,14 +269,15 @@ class RegionMap:
 
         norm = None
         if log and not cells.empty:
-            norm = LogNorm(vmin=max(cells[value].min(), 0.1), vmax=cells[value].max())
+            norm = LogNorm(vmin=max(cells[value].min(), 0.1),
+                           vmax=cells[value].max())
 
         cells.plot(ax=axes, column=value, cmap=cmap, alpha=0.85, zorder=3,
                    norm=norm, legend=True,
                    legend_kwds={"label": f"total {value} (log scale)" if log
                                 else f"total {value}", "shrink": 0.6})
         self._coastline_on_top()
-        axes.set_title(title or
+        axes.set_title(plot_title or
                        f"Vessel presence, {value} per grid cell "
                        f"({len(gdf):,} records)")
         return axes
@@ -285,7 +296,8 @@ class RegionMap:
             self.land.boundary.plot(ax=self._axes, color="#5b6b62",
                                     linewidth=0.9, zorder=5)
 
-    def _cells(self, gdf: geopandas.GeoDataFrame, value: str) -> geopandas.GeoDataFrame:
+    def _cells(self, gdf: geopandas.GeoDataFrame,
+               value: str) -> geopandas.GeoDataFrame:
         """
         Turn gridded points into square cell polygons totalling `value`.
 
@@ -303,7 +315,8 @@ class RegionMap:
         # its own distinct cell.
         frame["cell_lon"] = frame.geometry.x.round(1)
         frame["cell_lat"] = frame.geometry.y.round(1)
-        totals = frame.groupby(["cell_lon", "cell_lat"], as_index=False)[value].sum()
+        totals = frame.groupby(["cell_lon", "cell_lat"],
+                               as_index=False)[value].sum()
 
         size = self._cell_size(totals)
         squares = [box(lon, lat, lon + size, lat + size)
@@ -312,8 +325,8 @@ class RegionMap:
 
     def _compare_to_peacetime(self, gdf: geopandas.GeoDataFrame,
                               peacetime: geopandas.GeoDataFrame,
-                              value: str="hours", cmap: str="YlOrRd",
-                              log: bool=True) -> geopandas.GeoDataFrame:
+                              value: str = "hours", cmap: str = "YlOrRd",
+                              log: bool = True) -> geopandas.GeoDataFrame:
         """
         Compare a gridded presence GeoDataFrame to a peacetime baseline to
         produce a new GeoDataFrame with the difference in presence.
@@ -342,10 +355,11 @@ class RegionMap:
                                           how="inner",
                                           suffixes=('_current', '_peacetime'))
         comparison.set_geometry(comparison.geometry_current, inplace=True)
-        comparison["difference"] = comparison[f"{value}_current"] - comparison[f"{value}_peacetime"]
+        comparison["difference"] = (
+            comparison[f"{value}_current"] - comparison[f"{value}_peacetime"]
+        )
 
         return comparison
-
 
     @staticmethod
     def _cell_size(totals: pandas.DataFrame) -> float:
@@ -363,10 +377,17 @@ class RegionMap:
         if len(unique) < 2:
             return 0.1
         gaps = [round(b - a, 4) for a, b in zip(unique, unique[1:])]
-        return min(g for g in gaps if g > 0) if any(g > 0 for g in gaps) else 0.1
+        if any(g > 0 for g in gaps):
+            return min(g for g in gaps if g > 0)
+        return 0.1
 
-    def points(self, gdf: geopandas.GeoDataFrame, color_by: str="ship_type",
-               title: str | None=None, size: float=14) -> matplotlib.axes.Axes:
+    def points(
+            self,
+            gdf: geopandas.GeoDataFrame,
+            color_by: str = "ship_type",
+            plot_title: str | None = None,
+            size: float = 14
+    ) -> matplotlib.axes.Axes:
         """
         Draw one point per vessel or event.
 
@@ -381,31 +402,43 @@ class RegionMap:
             matplotlib.axes.Axes: The axes drawn onto.
         """
         axes = self.base()
-        if color_by != "ship_type":
-            pallette = plt.get_cmap("tab10_r").colors
-            color = {name: pallette[i % len(pallette)] for i,
-                     name in enumerate(gdf[color_by].unique())}
-        else:
-            color=TYPE_COLORS.get(name, "#c0392b")
 
         if color_by in gdf.columns:
-            for name, group in gdf.groupby(color_by):
-                group.plot(ax=axes,
-                           markersize=size,
-                           zorder=3,
-                           color=color,
-                           label=f"{name} ({len(group)})",
-                           edgecolor="white", linewidth=0.3)
-            axes.legend(loc="upper right", fontsize=8, framealpha=0.9)
+            unique_vals = list(gdf[color_by].dropna().unique())
+            if len(unique_vals) == 0:
+                # nothing to plot
+                gdf.plot(ax=axes, markersize=size, color="#c0392b",
+                         zorder=3, edgecolor="white", linewidth=0.3)
+            else:
+                # Build a color map: use TYPE_COLORS for ship_type,
+                # otherwise a palette
+                if len(unique_vals) == 1:
+                    color_map = {name: TYPE_COLORS.get(name, "#c0392b")
+                                 for name in unique_vals}
+                else:
+                    palette = sns.color_palette("turbo",
+                                                n_colors=len(unique_vals))
+                    color_map = {name: palette[i % len(palette)] for i,
+                                 name in enumerate(unique_vals)}
+
+                for name, group in gdf.groupby(color_by):
+                    col = color_map.get(name, "#c0392b")
+                    group.plot(ax=axes,
+                               markersize=size,
+                               zorder=3,
+                               color=col,
+                               label=f"{name} ({len(group)})",
+                               edgecolor="white", linewidth=0.3)
+                axes.legend(loc="upper right", fontsize=8, framealpha=0.9)
         else:
             gdf.plot(ax=axes, markersize=size, color="#c0392b",
                      zorder=3, edgecolor="white", linewidth=0.3)
 
         self._coastline_on_top()
-        axes.set_title(title or f"{len(gdf):,} vessels")
+        axes.set_title(plot_title or f"{len(gdf):,} vessels by {color_by}")
         return axes
 
-    def save(self, path: str, dpi: int=150) -> None:
+    def save(self, path: str, dpi: int = 150) -> None:
         """
         Write the current figure to an image file.
 
@@ -424,8 +457,14 @@ class RegionMap:
         print(f"wrote {path}", file=sys.stderr)
 
 
-def draw(csv_path: str, out_path: str | None=None, color_by: str="ship_type",
-         region: regions.BBox=regions.STRAIT_OF_HORMUZ, show: bool=False) -> str:
+def draw(
+    csv_path: str,
+    out_path: str | None = None,
+    color_by: str = "ship_type",
+    region: regions.BBox = regions.STRAIT_OF_HORMUZ,
+    plot_title: str | None = None,
+    show: bool = False,
+) -> str:
     """
     Read a CSV and draw whichever kind of map suits it.
 
@@ -443,9 +482,9 @@ def draw(csv_path: str, out_path: str | None=None, color_by: str="ship_type",
     region_map = RegionMap(region)
 
     if "hours" in gdf.columns:
-        region_map.density(gdf)
+        region_map.density(gdf, plot_title)
     else:
-        region_map.points(gdf, color_by=color_by)
+        region_map.points(gdf, color_by, plot_title)
 
     out_path = out_path or os.path.splitext(csv_path)[0] + ".png"
     region_map.save(out_path)
@@ -455,11 +494,12 @@ def draw(csv_path: str, out_path: str | None=None, color_by: str="ship_type",
 
 
 def compare_to_peacetime(csv_path: str,
-                         out_path: str | None=None,
-                         region: regions.BBox=regions.STRAIT_OF_HORMUZ,
-                         show: bool=False) -> str:
+                         out_path: str | None = None,
+                         region: regions.BBox = regions.STRAIT_OF_HORMUZ,
+                         show: bool = False) -> str:
     """
-    Read a gridded presence CSV and draw the difference from a peacetime baseline.
+    Read a gridded presence CSV and draw the difference from a peacetime
+    baseline.
 
     Args:
         csv_path (str): A CSV written by main.py presence --grid.
@@ -475,14 +515,16 @@ def compare_to_peacetime(csv_path: str,
     if not os.path.exists("peacetime_hormuz_2022-01-01_2022-12-31.csv"):
         sys.exit(
             "Peacetime baseline file not found. Please run "
-            "'python main.py presence --peacetime --grid --group-by VESSEL_ID' first."
+            "'python main.py presence --peacetime --grid"
+            "--group-by VESSEL_ID' first."
         )
 
     gdf = load_csv(csv_path)
     gdf_peacetime = load_csv("peacetime_hormuz_2022-01-01_2022-12-31.csv")
     region_map = RegionMap(region)
     diff_gdf = region_map._compare_to_peacetime(gdf, gdf_peacetime)
-    region_map.density(diff_gdf, value="difference", title="Difference from Peacetime")
+    region_map.density(diff_gdf, value="difference",
+                       title="Difference from Peacetime")
 
     out_path = out_path or os.path.splitext(csv_path)[0] + "_diff.png"
     region_map.save(out_path)

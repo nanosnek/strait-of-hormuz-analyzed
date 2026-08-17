@@ -43,7 +43,10 @@ class BBox:
         Returns:
             bool: True if the point is inside the box or on its edge.
         """
-        return self.west <= lon <= self.east and self.south <= lat <= self.north
+        return (
+            self.west <= lon <= self.east
+            and self.south <= lat <= self.north
+        )
 
     def to_geojson(self):
         """
