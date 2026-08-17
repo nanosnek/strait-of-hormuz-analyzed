@@ -45,7 +45,10 @@ def timestamp() -> str:
     Returns:
         str: The current UTC time, e.g. "20260802T060221Z".
     """
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # produce compact UTC timestamp safe for filenames, e.g. 20260802T060221Z
+    return datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y%m%dT%H%M%SZ"
+    )
 
 
 def date_window(days: int, latency_days: int) -> tuple[str, str]:
@@ -86,7 +89,8 @@ def write(records: list[dict], json_path: str, csv_path: str | None) -> None:
             the query was wrong rather than that the sea was.
     """
     if not records:
-        sys.exit("no records returned - try a wider date range or a larger region")
+        sys.exit("no records returned - try a wider date range"
+                 "or a larger region")
 
     directory = os.path.dirname(json_path)
     if directory:
@@ -101,7 +105,8 @@ def write(records: list[dict], json_path: str, csv_path: str | None) -> None:
         print(f"wrote {len(records)} records -> {csv_path}", file=sys.stderr)
 
 
-def output_paths(args: argparse.Namespace, stem: str) -> tuple[str, str | None]:
+def output_paths(args: argparse.Namespace,
+                 stem: str) -> tuple[str, str | None]:
     """
     Decide where a command's output should go.
 
@@ -114,7 +119,7 @@ def output_paths(args: argparse.Namespace, stem: str) -> tuple[str, str | None]:
         tuple[str, str | None]: The (json_path, csv_path). The CSV path is the
             JSON path with a .csv extension, or None if --no-csv was passed.
     """
-    json_path = args.out or f"{stem}.json"
+    json_path = args.out or os.path.join("data", f"{stem}.json")
     csv_path = None if args.no_csv else os.path.splitext(json_path)[0] + ".csv"
     return json_path, csv_path
 
@@ -137,7 +142,8 @@ def cmd_presence(args: argparse.Namespace) -> None:
     if args.peacetime:
         return cmd_peacetime(args)
 
-    import gfw  # imported here so the live-map commands don't need the GFW client
+    import gfw  # imported here so the live-map commands
+    # don't need the GFW client
 
     source = gfw.GFWSource()
     start, end = date_window(args.days, gfw.LATENCY_DAYS)
@@ -150,7 +156,8 @@ def cmd_presence(args: argparse.Namespace) -> None:
         vessel_types=None if args.all_types else gfw.COMMERCIAL,
         spatial_aggregation=not args.grid,
     )
-    write(records, *output_paths(args, f"presence_{args.region}_{start}_{end}"))
+    write(records, *output_paths(args,
+                                 f"presence_{args.region}_{start}_{end}"))
 
 
 def cmd_events(args: argparse.Namespace) -> None:
@@ -179,7 +186,8 @@ def cmd_events(args: argparse.Namespace) -> None:
         vessel_types=None if args.all_types else gfw.COMMERCIAL,
         limit=args.limit,
     )
-    write(records, *output_paths(args, f"{args.type}_{args.region}_{start}_{end}"))
+    write(records, *output_paths(args,
+                                 f"{args.type}_{args.region}_{start}_{end}"))
 
 
 def cmd_map(args: argparse.Namespace) -> None:
@@ -194,7 +202,8 @@ def cmd_map(args: argparse.Namespace) -> None:
     """
     import mapping  # imported here so the other commands don't need geopandas
 
-    mapping.draw(args.csv, args.out, regions.REGIONS[args.region], show=args.show)
+    mapping.draw(args.csv, args.out,
+                 regions.REGIONS[args.region], show=args.show)
 
 
 def cmd_peacetime(args: argparse.Namespace) -> None:
@@ -219,16 +228,18 @@ def cmd_peacetime(args: argparse.Namespace) -> None:
         regions.REGIONS[args.region], start, end,
         temporal_resolution=args.temporal_resolution,
         group_by=args.group_by,
-        vessel_types= None if args.all_types else gfw.COMMERCIAL,
+        vessel_types=None if args.all_types else gfw.COMMERCIAL,
         spatial_aggregation=not args.grid,
     )
-    write(records, *output_paths(args, f"peacetime_{args.region}_{start}_{end}"))
+    write(records, *output_paths(args,
+                                 f"peacetime_{args.region}_{start}_{end}"))
+
 
 def cmd_peacetime_events(args: argparse.Namespace) -> None:
     """
-    Run the `peacetime-events` subcommand: create a "peacetime" dataset of vessel
-    events in the Strait of Hormuz, for comparison with periods of conflict
-    or disruption.
+    Run the `peacetime-events` subcommand: create a "peacetime" dataset of
+    vessel events in the Strait of Hormuz, for comparison with periods of
+    conflict or disruption.
 
     Args:
         args (argparse.Namespace): Parsed options -- region, out, no_csv.
@@ -245,17 +256,19 @@ def cmd_peacetime_events(args: argparse.Namespace) -> None:
     records = source.events(
         regions.REGIONS[args.region], start, end,
         event_type=args.type,
-        vessel_types= None if args.all_types else gfw.COMMERCIAL,
+        vessel_types=None if args.all_types else gfw.COMMERCIAL,
         limit=args.limit,
     )
-    write(records, *output_paths(args, f"peacetime_{args.type}_{args.region}_{start}_{end}"))
-
+    fname = (
+        f"peacetime_{args.type}_{args.region}_"
+        f"{start}_{end}"
+    )
+    write(records, *output_paths(args, fname))
 
 
 # --------------------------------------------------------------------------
 # MarineTraffic live map
 # --------------------------------------------------------------------------
-
 def live_source(args: argparse.Namespace) -> livemap.LiveMapSource:
     """
     Build a LiveMapSource configured from the command line options.
@@ -276,12 +289,14 @@ def live_source(args: argparse.Namespace) -> livemap.LiveMapSource:
     return livemap.LiveMapSource(
         zoom=args.zoom,
         delay=args.delay,
-        hide_types=None if args.keep_small_craft else livemap.DEFAULT_HIDE_TYPES,
+        hide_types=None if args.keep_small_craft
+        else livemap.DEFAULT_HIDE_TYPES,
         verbose=not args.quiet,
     )
 
 
-def live_reading(source: livemap.LiveMapSource, args: argparse.Namespace) -> list[dict]:
+def live_reading(source: livemap.LiveMapSource,
+                 args: argparse.Namespace) -> list[dict]:
     """
     Take one live reading from the MarineTraffic map.
 
@@ -309,11 +324,13 @@ def cmd_snapshot(args: argparse.Namespace) -> None:
         None
     """
     vessels = live_reading(live_source(args), args)
-    write(vessels, *output_paths(args, f"hormuz_{args.region}_{timestamp()}"))
+    write(vessels, *output_paths(args,
+                                 f"snapshot_{args.region}_{timestamp()}"))
 
     moving = [v for v in vessels if (v["speed_knots"] or 0) >= 0.5]
     print(f"\n{len(vessels)} vessels, {len(moving)} under way "
-          f"({len(vessels) - len(moving)} stopped or anchored)", file=sys.stderr)
+          f"({len(vessels) - len(moving)} stopped or anchored)",
+          file=sys.stderr)
 
 
 def cmd_watch(args: argparse.Namespace) -> None:
@@ -351,8 +368,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
             vessels = []
 
         if vessels:
-            base = os.path.join(args.out_dir, f"hormuz_{args.region}_{stamp}")
-            write(vessels, base + ".json", None if args.no_csv else base + ".csv")
+            base = os.path.join(args.out_dir,
+                                f"snapshot_{args.region}_{stamp}")
+            write(vessels, base + ".json",
+                  None if args.no_csv else base + ".csv")
 
         time.sleep(args.interval)
 
@@ -386,9 +405,11 @@ def add_shared_args(parser: argparse.ArgumentParser) -> None:
     Returns:
         None
     """
-    parser.add_argument("--region", choices=sorted(regions.REGIONS), default="hormuz")
+    parser.add_argument("--region", choices=sorted(regions.REGIONS),
+                        default="hormuz")
     parser.add_argument("--all-types", action="store_true",
-                        help="every vessel type, not just cargo/tanker traffic")
+                        help="every vessel type, not just cargo/tanker "
+                             "traffic")
     parser.add_argument("-o", "--out", help="output .json path")
     parser.add_argument("--no-csv", action="store_true")
 
@@ -405,10 +426,11 @@ def add_live_args(parser: argparse.ArgumentParser) -> None:
     """
     add_shared_args(parser)
     parser.add_argument("--zoom", type=int, default=9,
-                        help="tile zoom 3-12. Low zoom is truncated server-side; "
-                             "raise for completeness. Default 9.")
+                        help="tile zoom 3-12. Low zoom is truncated "
+                        "server-side; raise for completeness. Default 9.")
     parser.add_argument("--keep-small-craft", action="store_true",
-                        help="also keep nav aids, fishing boats and pleasure craft")
+                        help="also keep nav aids, fishing boats and "
+                        "pleasure craft")
     parser.add_argument("--delay", type=float, default=0.3,
                         help="seconds between requests (be polite)")
     parser.add_argument("-q", "--quiet", action="store_true")
@@ -425,11 +447,13 @@ def build_parser() -> argparse.ArgumentParser:
         argparse.ArgumentParser: The configured parser.
     """
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    presence = sub.add_parser("presence", help="[GFW] traffic volume over time")
+    presence = sub.add_parser("presence",
+                              help="[GFW] traffic volume over time")
     add_shared_args(presence)
     presence.add_argument("--days", type=int, default=90,
                           help="how far back to look, up to 366. Default 90.")
@@ -437,38 +461,54 @@ def build_parser() -> argparse.ArgumentParser:
                           help="one row per map cell with lat/lon, instead of "
                                "one total per time bucket. Use for mapping.")
     presence.add_argument("--temporal-resolution", default="DAILY",
-                          choices=["HOURLY", "DAILY", "MONTHLY", "YEARLY", "ENTIRE"])
+                          choices=["HOURLY", "DAILY", "MONTHLY",
+                                   "YEARLY", "ENTIRE"])
     presence.add_argument("--group-by", default="FLAG",
-                          choices=["VESSEL_ID", "FLAG", "GEARTYPE", "FLAGANDGEARTYPE", "MMSI"],
+                          choices=["VESSEL_ID", "FLAG", "GEARTYPE",
+                                   "FLAGANDGEARTYPE", "MMSI"],
                           help="break the totals down by this field. The API "
                                "requires one; sum across groups for a total. "
                                "Default FLAG.")
-    presence.add_argument("--peacetime", help="create a 'peacetime' dataset for comparison with periods of conflict", action="store_true")
+    presence.add_argument("--peacetime", help="create a 'peacetime' dataset"
+                          "for comparison with periods of conflict",
+                          action="store_true")
     presence.set_defaults(func=cmd_presence)
 
-    events = sub.add_parser("events", help="[GFW] encounters, loitering, gaps, port visits")
+    events = sub.add_parser("events",
+                            help="[GFW] encounters, loitering,"
+                            "gaps, port visits")
     add_shared_args(events)
     events.add_argument("--type", default="encounter",
-                        choices=["encounter", "loitering", "port_visit", "gap", "fishing", "all_types"])
+                        choices=["encounter", "loitering", "port_visit", "gap",
+                                 "fishing", "all_types"])
     events.add_argument("--days", type=int, default=90)
     events.add_argument("--limit", type=int, default=1000)
-    events.add_argument("--peacetime", help="create a 'peacetime' dataset for comparison with periods of conflict", action="store_true")
+    events.add_argument("--peacetime",
+                        help="create a 'peacetime' dataset for comparison with"
+                        "periods of conflict", action="store_true")
     events.set_defaults(func=cmd_events)
 
     drawing = sub.add_parser("map", help="draw a collected CSV on a map")
-    drawing.add_argument("csv", help="a .csv written by presence/events/snapshot")
-    drawing.add_argument("--region", choices=sorted(regions.REGIONS), default="hormuz")
-    drawing.add_argument("-o", "--out", help="image to write (default: alongside the CSV)")
-    drawing.add_argument("--show", action="store_true", help="also open a window")
+    drawing.add_argument("csv",
+                         help="a .csv written by presence/events/snapshot")
+    drawing.add_argument("--region", choices=sorted(regions.REGIONS),
+                         default="hormuz")
+    drawing.add_argument("-o", "--out",
+                         help="image to write (default: alongside the CSV)")
+    drawing.add_argument("--show", action="store_true",
+                         help="also open a window")
     drawing.set_defaults(func=cmd_map)
 
-    snapshot = sub.add_parser("snapshot", help="[MarineTraffic] one live reading")
+    snapshot = sub.add_parser("snapshot",
+                              help="[MarineTraffic] one live reading")
     add_live_args(snapshot)
     snapshot.set_defaults(func=cmd_snapshot)
 
-    watch = sub.add_parser("watch", help="[MarineTraffic] repeated live readings")
+    watch = sub.add_parser("watch",
+                           help="[MarineTraffic] repeated live readings")
     add_live_args(watch)
-    watch.add_argument("--interval", type=int, default=900, help="seconds, default 900")
+    watch.add_argument("--interval", type=int, default=900,
+                       help="seconds, default 900")
     watch.add_argument("--out-dir", default="data")
     watch.set_defaults(func=cmd_watch)
 

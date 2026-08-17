@@ -24,7 +24,7 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-If that second line fails with *"running scripts is disabled on this system"*,
+If that second line fails with _"running scripts is disabled on this system"_,
 Windows is blocking the activate script. Allow it for your own account, then
 try again:
 
@@ -149,16 +149,16 @@ Everything writes JSON and CSV side by side.
 
 ## Choosing a source
 
-| | Global Fishing Watch | MarineTraffic live map | MarineTraffic reports |
-|---|---|---|---|
-| Module | `gfw.py` | `livemap.py` | `data_get.py` |
-| Credentials | free API token | none | signed-in session |
-| History | **2012 onwards** | none — forward only | none |
-| Freshness | ~72 h behind | live | live |
-| Position detail | 1/vessel/hour | every few minutes | current only |
-| Encounters, loitering, AIS gaps | **yes** | no | no |
-| IMO / MMSI / callsign | yes | no | yes |
-| Allowed by terms | **yes** | no | no |
+|                                 | Global Fishing Watch | MarineTraffic live map | MarineTraffic reports |
+| ------------------------------- | -------------------- | ---------------------- | --------------------- |
+| Module                          | `gfw.py`             | `livemap.py`           | `data_get.py`         |
+| Credentials                     | free API token       | none                   | signed-in session     |
+| History                         | **2012 onwards**     | none — forward only    | none                  |
+| Freshness                       | ~72 h behind         | live                   | live                  |
+| Position detail                 | 1/vessel/hour        | every few minutes      | current only          |
+| Encounters, loitering, AIS gaps | **yes**              | no                     | no                    |
+| IMO / MMSI / callsign           | yes                  | no                     | yes                   |
+| Allowed by terms                | **yes**              | no                     | no                    |
 
 For coursework, prefer GFW. The MarineTraffic paths use internal endpoints —
 fine for exploration, but they break without warning and are against the
@@ -201,22 +201,22 @@ so each request fills in only the columns that apply to it and leaves the rest
 null. An empty column means "not applicable to this query", not "missing
 data". What you get depends on what you asked for:
 
-| Column | Filled when |
-|---|---|
-| `date`, `hours`, `report_dataset` | always |
-| `flag`, `vessel_ids` (a count) | `--group-by FLAG` |
-| `vessel_id`, `imo`, `mmsi`, `call_sign`, `ship_name`, `vessel_type`, `gear_type`, entry/exit/transmission timestamps | `--group-by VESSEL_ID` |
-| `lat`, `lon` | `--grid` |
-| `detections` | never -- SAR dataset only |
+| Column                                                                                                               | Filled when               |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `date`, `hours`, `report_dataset`                                                                                    | always                    |
+| `flag`, `vessel_ids` (a count)                                                                                       | `--group-by FLAG`         |
+| `vessel_id`, `imo`, `mmsi`, `call_sign`, `ship_name`, `vessel_type`, `gear_type`, entry/exit/transmission timestamps | `--group-by VESSEL_ID`    |
+| `lat`, `lon`                                                                                                         | `--grid`                  |
+| `detections`                                                                                                         | never -- SAR dataset only |
 
 How full the result is depends on the combination:
 
-| `--group-by` | `--grid` | columns filled |
-|---|---|---|
-| `FLAG` (default) | no | 5 / 20 |
-| `FLAG` | yes | 7 / 20 |
-| `VESSEL_ID` | no | 16 / 20 |
-| **`VESSEL_ID`** | **yes** | **18 / 20** |
+| `--group-by`     | `--grid` | columns filled |
+| ---------------- | -------- | -------------- |
+| `FLAG` (default) | no       | 5 / 20         |
+| `FLAG`           | yes      | 7 / 20         |
+| `VESSEL_ID`      | no       | 16 / 20        |
+| **`VESSEL_ID`**  | **yes**  | **18 / 20**    |
 
 So for the richest output:
 
@@ -228,7 +228,7 @@ The two that stay empty are structural: `detections` belongs to the SAR
 dataset, and `vessel_ids` is a count, meaningless once each row is already a
 single vessel.
 
-Columns empty in *every* row are dropped from the CSV, since nothing is lost
+Columns empty in _every_ row are dropped from the CSV, since nothing is lost
 and a spreadsheet with 13 dead columns is hard to read. The JSON keeps the
 full schema.
 

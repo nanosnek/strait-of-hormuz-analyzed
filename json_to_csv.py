@@ -82,10 +82,12 @@ def write_csv(ship_data: list[dict], path: str,
 
     if not keep_empty_columns:
         used = [h for h in headers
-                if any(record.get(h) not in (None, "") for record in ship_data)]
+                if any(record.get(h) not in (None, "")
+                       for record in ship_data)]
         dropped = len(headers) - len(used)
         if dropped and used:
-            print(f"  ({dropped} column(s) empty in every row, omitted from CSV)",
+            print(f"  ({dropped} column(s) empty in every row,"
+                  "omitted from CSV)",
                   file=sys.stderr)
             headers = used
 
@@ -100,8 +102,8 @@ def write_csv(ship_data: list[dict], path: str,
         # so rewriting a CSV you are looking at fails. OneDrive mid-sync does
         # the same. Neither is worth losing a long collection run over.
         print(f"Error: can't write {path} - permission denied.\n"
-              f"  It is probably open in Excel. Close it and run again, or use "
-              f"-o to write somewhere else.", file=sys.stderr)
+              f"  It is probably open in Excel. Close it and run again,"
+              f"or use -o to write somewhere else.", file=sys.stderr)
         return 0
     return len(ship_data)
 

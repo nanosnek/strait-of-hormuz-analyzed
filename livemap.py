@@ -84,7 +84,8 @@ def lonlat_to_tile(lon: float, lat: float, zoom: int) -> tuple[int, int]:
         zoom (int): Map zoom level, 3 to 12 in practice.
 
     Returns:
-        tuple[int, int]: The (x, y) tile indices, each 0 to 2 ** (zoom - 1) - 1.
+        tuple[int, int]: The (x, y) tile indices,
+        each 0 to 2 ** (zoom - 1) - 1.
             x increases eastward and y increases *southward*, so the north
             edge of a box gives the smaller y.
     """
@@ -92,7 +93,9 @@ def lonlat_to_tile(lon: float, lat: float, zoom: int) -> tuple[int, int]:
     lat = max(min(lat, 85.05112878), -85.05112878)
     lat_rad = math.radians(lat)
     x = int((lon + 180.0) / 360.0 * n)
-    y = int((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+    y = int((1.0 - math.log(math.tan(lat_rad) + 1.0
+                            / math.cos(lat_rad)) / math.pi)
+            / 2.0 * n)
     return max(0, min(n - 1, x)), max(0, min(n - 1, y))
 
 
@@ -182,7 +185,8 @@ def decode_row(row: dict, observed_at: str) -> dict:
         "shipname": None if satellite else row.get("SHIPNAME"),
         "lat": to_number(row.get("LAT")),
         "lon": to_number(row.get("LON")),
-        "speed_knots": None if speed is None else speed / 10.0,  # raw is 0.1 kn
+        "speed_knots": None if speed is None
+        else speed / 10.0,  # raw is 0.1 kn
         "course_deg": to_number(row.get("COURSE")),
         "heading_deg": to_number(row.get("HEADING")),
         "rate_of_turn": to_number(row.get("ROT")),
@@ -193,11 +197,14 @@ def decode_row(row: dict, observed_at: str) -> dict:
         "width_m": to_number(row.get("WIDTH")),
         "dwt": to_number(row.get("DWT")),
         "ship_type_code": type_code,
-        "ship_type": SHIP_TYPES.get(type_code, "Unknown") if type_code is not None else None,
+        "ship_type": SHIP_TYPES.get(type_code, "Unknown")
+        if type_code is not None else None,
         "detailed_type_code": row.get("GT_SHIPTYPE"),
         "nav_status": row.get("STATUS_NAME"),
         "position_source": "satellite" if satellite else "terrestrial",
-        "url": None if satellite else f"https://www.marinetraffic.com/en/ais/details/ships/shipid:{ship_id}",
+        "url": None if satellite else (
+            f"https://www.marinetraffic.com/en/ais/details/ships/"
+            f"shipid:{ship_id}"),
     }
 
 
@@ -284,17 +291,19 @@ class LiveMapSource(VesselDataSource):
         for _ in range(self.retries):
             try:
                 response = self.session.get(url, headers=HEADERS, timeout=30)
-                if (response.status_code == 200
-                        and "json" in response.headers.get("content-type", "")):
+                content_type = response.headers.get("content-type", "")
+                if response.status_code == 200 and "json" in content_type:
                     return response.json().get("data", {}).get("rows", [])
                 problem = f"HTTP {response.status_code}"
                 if response.status_code == 403:
-                    problem += " (Cloudflare - try a different impersonate profile)"
+                    problem += (" (Cloudflare - try a different "
+                                "impersonate profile)")
             except Exception as error:
                 problem = repr(error)
             time.sleep(1)
 
-        print(f"  ! tile z:{self.zoom}/X:{x}/Y:{y} failed: {problem}", file=sys.stderr)
+        print(f"  ! tile z:{self.zoom}/X:{x}/Y:{y} failed: {problem}",
+              file=sys.stderr)
         return []
 
     def fetch_region(self, bbox: regions.BBox) -> list[dict]:
@@ -323,10 +332,12 @@ class LiveMapSource(VesselDataSource):
         for number, (x, y) in enumerate(tiles, start=1):
             time.sleep(self.delay)
             rows = self.fetch_tile(x, y)
-            # Stamp per tile, not once for the whole region: a large region at
-            # high zoom is hundreds of tiles and takes minutes, so a single
-            # timestamp would be badly wrong for everything after the first.
-            observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            # Stamp per tile, not once for the whole region: a large
+            # region at high zoom is hundreds of tiles and takes minutes,
+            # so a single timestamp would be badly wrong for everything
+            # after the first.
+            observed_at = datetime.now(timezone.utc).isoformat(
+                timespec="seconds")
 
             added = 0
             for row in rows:
@@ -363,7 +374,8 @@ class LiveMapSource(VesselDataSource):
         Returns:
             list[dict]: Decoded vessels whose ship_type_code is TANKER (8).
         """
-        return [v for v in self.fetch_region(bbox) if v["ship_type_code"] == TANKER]
+        return [v for v in self.fetch_region(bbox)
+                if v["ship_type_code"] == TANKER]
 
     def total_ships_worldwide(self) -> int | None:
         """
@@ -376,7 +388,8 @@ class LiveMapSource(VesselDataSource):
             int | None: The worldwide vessel count, or None if the response
                 couldn't be parsed as a number.
         """
-        response = self.session.get(TOTAL_SHIPS_URL, headers=HEADERS, timeout=30)
+        response = self.session.get(TOTAL_SHIPS_URL, headers=HEADERS,
+                                    timeout=30)
         try:
             return int(response.text.strip())
         except (ValueError, AttributeError):

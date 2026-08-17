@@ -33,7 +33,6 @@ import math
 import os
 import sys
 
-
 import geopandas
 import matplotlib
 import pandas
@@ -379,14 +378,14 @@ class RegionMap:
         gaps = [round(b - a, 4) for a, b in zip(unique, unique[1:])]
         if any(g > 0 for g in gaps):
             return min(g for g in gaps if g > 0)
-        return 0.1
+        else:
+            return 0.1
 
     def points(
             self,
             gdf: geopandas.GeoDataFrame,
             color_by: str = "ship_type",
-            plot_title: str | None = None,
-            size: float = 14
+            plot_title: str = None, size: float = 14
     ) -> matplotlib.axes.Axes:
         """
         Draw one point per vessel or event.
@@ -410,10 +409,11 @@ class RegionMap:
                 gdf.plot(ax=axes, markersize=size, color="#c0392b",
                          zorder=3, edgecolor="white", linewidth=0.3)
             else:
-                # Build a color map: use TYPE_COLORS for ship_type,
-                # otherwise a palette
+                # Build a color map: use TYPE_COLORS for ship_type, otherwise
+                # a palette
                 if len(unique_vals) == 1:
-                    color_map = {name: TYPE_COLORS.get(name, "#c0392b")
+                    color_map = {name:
+                                 TYPE_COLORS.get(name, "#c0392b")
                                  for name in unique_vals}
                 else:
                     palette = sns.color_palette("turbo",
@@ -482,9 +482,9 @@ def draw(
     region_map = RegionMap(region)
 
     if "hours" in gdf.columns:
-        region_map.density(gdf, plot_title)
+        region_map.density(gdf, value="hours", plot_title=plot_title)
     else:
-        region_map.points(gdf, color_by, plot_title)
+        region_map.points(gdf, color_by=color_by, plot_title=plot_title)
 
     out_path = out_path or os.path.splitext(csv_path)[0] + ".png"
     region_map.save(out_path)
@@ -524,7 +524,7 @@ def compare_to_peacetime(csv_path: str,
     region_map = RegionMap(region)
     diff_gdf = region_map._compare_to_peacetime(gdf, gdf_peacetime)
     region_map.density(diff_gdf, value="difference",
-                       title="Difference from Peacetime")
+                       plot_title="Difference from Peacetime")
 
     out_path = out_path or os.path.splitext(csv_path)[0] + "_diff.png"
     region_map.save(out_path)

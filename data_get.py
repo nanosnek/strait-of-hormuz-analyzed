@@ -32,9 +32,11 @@ from source import MARINETRAFFIC_HEADERS, VesselDataSource
 
 REPORTS_URL = "https://www.marinetraffic.com/en/reports/"
 
-# flag,shipname,photo,... -- the column set the project's output.csv is built on
+# flag,shipname,photo,... -- the column set the project's
+# output.csv is built on
 COLUMNS = (
-    "flag,shipname,photo,recognized_next_port,reported_eta,reported_destination,"
+    "flag,shipname,photo,recognized_next_port,reported_eta,"
+    "reported_destination,"
     "current_port,imo,ship_type,show_on_live_map,time_of_latest_position,"
     "lat_of_latest_position,lon_of_latest_position,notes"
 )
@@ -72,7 +74,8 @@ def build_headers() -> dict:
     headers = {
         "User-Agent": os.environ.get(
             "MT_USER_AGENT",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0)"
+            "Gecko/20100101 Firefox/152.0",
         ),
         # The X-Requested-With quirk applies to this endpoint too; see
         # source.py, where it is recorded once for both.
