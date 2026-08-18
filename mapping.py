@@ -44,6 +44,7 @@ try:
     from matplotlib.colors import LogNorm
     import pandas as pd
     from shapely.geometry import box
+    from shapely.geometry import LineString
     import seaborn as sns
 
 except ImportError:
@@ -385,7 +386,8 @@ class RegionMap:
             self,
             gdf: geopandas.GeoDataFrame,
             color_by: str = "ship_type",
-            plot_title: str = None, size: float = 14
+            plot_title: str = None,
+            size: float = 14
     ) -> matplotlib.axes.Axes:
         """
         Draw one point per vessel or event.
@@ -438,6 +440,39 @@ class RegionMap:
         axes.set_title(plot_title or f"{len(gdf):,} vessels by {color_by}")
         return axes
 
+    def lines(self,
+              gdf: geopandas.GeoDataFrame,
+              plot_title: str = None) -> matplotlib.axes.Axes:
+        """
+        Draws a path per vessel given mulitiple vessel detections.
+
+        Args:
+            gdf (geopandas.GeoDataFrame): Rows with point geometry.
+            plot_title (str | None): Figure title. Generated when omitted.
+
+        Returns:
+            matplotlib.axes.Axes: The axes drawn onto.
+        """
+        gdf = gdf.sort_values(by=['ship_id', 'observed_at'])
+        axes = self.base()
+
+        grouped = gdf.groupby('ship_id')['geometry']
+        paths = (
+            grouped
+            .apply(lambda pts: LineString(pts.tolist()) if len(pts) > 1 else None)
+            .reset_index(name='geometry')
+        )
+        # Drop entries where a LineString couldn't be built (single-point tracks)
+        paths = paths.dropna(subset=['geometry'])
+        paths = gpd.GeoDataFrame(paths, geometry='geometry')
+        paths.plot(ax=axes,
+                   column='ship_id',
+                   cmap='Set1',
+                   linewidth=2)
+        self._coastline_on_top()
+        axes.set_title(plot_title or f"{len(paths):,} vessel paths")
+        return axes
+
     def save(self, path: str, dpi: int = 150) -> None:
         """
         Write the current figure to an image file.
@@ -472,7 +507,11 @@ def draw(
         csv_path (str): A CSV written by main.py.
         out_path (str | None): Image to write. Defaults to the CSV's name
             with a .png extension.
+        color_by (str): Option to give a column name to color points by
+            unique groups.
         region (regions.BBox): Area to map. Defaults to the Strait of Hormuz.
+        plot_title (str): Tile is optional and given by the user. Default is
+            given in mapping functions.
         show (bool): Open an interactive window as well. Defaults to False.
 
     Returns:
@@ -487,6 +526,58 @@ def draw(
         region_map.points(gdf, color_by=color_by, plot_title=plot_title)
 
     out_path = out_path or os.path.splitext(csv_path)[0] + ".png"
+    region_map.save(out_path)
+    if show:
+        plt.show()
+    return out_path
+
+
+def draw_path(csv_paths: list[str],
+              out_path: str | None = None,
+              region: regions.BBox = regions.STRAIT_OF_HORMUZ,
+              plot_title: str | None = None,
+              show: bool = False) -> str:
+    """
+    Draws the paths of vessels given several 'snapshot' CSVs.
+
+    Args:
+        csv_paths list[str]: A list of 'snapshot' CSV paths written by main.py
+        out_path (str | None): Image to write. Defaults to the CSV's name
+            with a .png extension.
+        region (regions.BBox): Area to map. Defaults to the Strait of Hormuz.
+        plot_title (str): Tile is optional and given by the user. Default is
+            ''.
+        show (bool): Open an interactive window as well. Defaults to False.
+
+    Returns:
+        str: The path to a map in .png format.
+    """
+    if len(csv_paths) <= 1:
+        sys.exit(
+            "Not enough data for path finding. "
+            "Please supply multiple snapshots by running "
+            "'python main.py watch --interval 900' and passing the "
+            "resulting paths into draw_path in list format."
+        )
+    gdf = load_csv(csv_paths[0])
+    for csv_path in csv_paths[1:]:
+        g = load_csv(csv_path)
+        gdf = pd.concat([gdf, g])
+
+    region_map = RegionMap(region)
+    starting = gdf['observed_at'].min()
+    ending = gdf['observed_at'].max()
+
+    if plot_title is None:
+        plot_title = f"Vessel paths in {region.get_name()} from {starting} to {ending}"
+
+    region_map.lines(gdf, plot_title, )
+
+    # Build a filesystem-safe output filename (avoid characters like ':'
+    # on Windows)
+    start_s = str(starting).replace(":", "-")
+    end_s = str(ending).replace(":", "-")
+    out_path = out_path or f"paths_{region.get_name().replace(" ", "_")}_{start_s}_to_{end_s}.png"
     region_map.save(out_path)
     if show:
         plt.show()

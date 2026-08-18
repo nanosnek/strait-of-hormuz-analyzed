@@ -18,16 +18,21 @@ class BBox:
     into two if you ever do.
 
     Attributes:
+        name (str): Name of the region.
         west (float): Western edge, in degrees longitude (-180 to 180).
         south (float): Southern edge, in degrees latitude (-90 to 90).
         east (float): Eastern edge, in degrees longitude. Must exceed west.
         north (float): Northern edge, in degrees latitude. Must exceed south.
     """
 
+    name: str
     west: float
     south: float
     east: float
     north: float
+
+    def get_name(self):
+        return self.name
 
     def contains(self, lon, lat):
         """
@@ -77,12 +82,13 @@ class BBox:
 
 
 # The chokepoint itself: Bandar Abbas / Qeshm across to Khasab and the TSS.
-STRAIT_OF_HORMUZ = BBox(55.20, 25.40, 57.40, 27.30)
+STRAIT_OF_HORMUZ = BBox('Strait of Hormuz', 55.20, 25.40, 57.40, 27.30)
 # Wider basins, matching the area_local_in=25|Persian Gulf, 41|Oman Gulf
 # filter that data_get.py uses against the reports endpoint.
-PERSIAN_GULF = BBox(47.50, 23.50, 56.60, 30.50)
-GULF_OF_OMAN = BBox(56.00, 22.00, 61.50, 27.20)
-ALL_REGIONS = BBox(47.50, 22.00, 61.50, 30.50)
+PERSIAN_GULF = BBox('Persian Gulf', 47.50, 23.50, 56.60, 30.50)
+GULF_OF_OMAN = BBox('Gulf of Oman', 56.00, 22.00, 61.50, 27.20)
+ALL_REGIONS = BBox('All regions near Strait of Hormuz',
+                   47.50, 22.00, 61.50, 30.50)
 
 REGIONS = {
     "hormuz": STRAIT_OF_HORMUZ,
