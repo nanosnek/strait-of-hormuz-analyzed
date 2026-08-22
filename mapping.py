@@ -347,12 +347,9 @@ class RegionMap:
         # Calculate the total presence for the peacetime baseline
         peacetime_totals = self._cells(peacetime, value)
 
-        current_totals = current_totals[current_totals[value] > 0]
-        peacetime_totals = peacetime_totals[peacetime_totals[value] > 0]
-
         comparison = current_totals.merge(peacetime_totals,
                                           on=["cell_lon", "cell_lat"],
-                                          how="inner",
+                                          how="outer",
                                           suffixes=('_current', '_peacetime'))
         comparison.set_geometry(comparison.geometry_current, inplace=True)
         comparison["difference"] = (
@@ -459,10 +456,12 @@ class RegionMap:
         grouped = gdf.groupby('ship_id')['geometry']
         paths = (
             grouped
-            .apply(lambda pts: LineString(pts.tolist()) if len(pts) > 1 else None)
+            .apply(lambda pts: LineString(pts.tolist())
+                   if len(pts) > 1 else None)
             .reset_index(name='geometry')
         )
-        # Drop entries where a LineString couldn't be built (single-point tracks)
+        # Drop entries where a LineString couldn't be built
+        # (single-point tracks)
         paths = paths.dropna(subset=['geometry'])
         paths = gpd.GeoDataFrame(paths, geometry='geometry')
         paths.plot(ax=axes,
@@ -560,8 +559,18 @@ def draw_path(csv_paths: list[str],
             "resulting paths into draw_path in list format."
         )
     gdf = load_csv(csv_paths[0])
+    if "observed_at" not in gdf.columns:
+        sys.exit(
+            "The files provided to draw_path must be snapshot CSVs containing "
+            "an 'observed_at' column."
+        )
     for csv_path in csv_paths[1:]:
         g = load_csv(csv_path)
+        if "observed_at" not in g.columns:
+            sys.exit(
+                f"{csv_path} is not a snapshot CSV and is missing the "
+                "'observed_at' column."
+            )
         gdf = pd.concat([gdf, g])
 
     region_map = RegionMap(region)
@@ -569,7 +578,8 @@ def draw_path(csv_paths: list[str],
     ending = gdf['observed_at'].max()
 
     if plot_title is None:
-        plot_title = f"Vessel paths in {region.get_name()} from {starting} to {ending}"
+        plot_title = (f"Vessel paths in {region.get_name()} "
+                      f"from {starting} to {ending}")
 
     region_map.lines(gdf, plot_title, )
 
@@ -577,7 +587,10 @@ def draw_path(csv_paths: list[str],
     # on Windows)
     start_s = str(starting).replace(":", "-")
     end_s = str(ending).replace(":", "-")
-    out_path = out_path or f"paths_{region.get_name().replace(" ", "_")}_{start_s}_to_{end_s}.png"
+    out_path = (
+        out_path or
+        f"paths_{region.get_name().replace(' ', '_')}_{start_s}_to_{end_s}.png"
+    )
     region_map.save(out_path)
     if show:
         plt.show()
@@ -611,11 +624,31 @@ def compare_to_peacetime(csv_path: str,
         )
 
     gdf = load_csv(csv_path)
-    gdf_peacetime = load_csv("peacetime_hormuz_2022-01-01_2022-12-31.csv")
+    gdf_peacetime = load_csv(
+        "peacetime_hormuz_2022-01-01_2022-12-31.csv"
+    )
+    # mask peacetime data to match presence data range
+    gdf['month_day'] = pd.to_datetime(gdf['date']).dt.strftime('%m-%d')
+    gdf_peacetime['month_day'] = (
+        pd.to_datetime(gdf_peacetime['date']).dt.strftime('%m-%d')
+    )
+    start = gdf['month_day'].min()
+    end = gdf['month_day'].max()
+    gdf_peacetime = gdf_peacetime[
+        (gdf_peacetime['month_day'] >= start)
+        & (gdf_peacetime['month_day'] <= end)]
     region_map = RegionMap(region)
     diff_gdf = region_map._compare_to_peacetime(gdf, gdf_peacetime)
+    if diff_gdf.empty:
+        sys.exit(
+            "No overlapping grid cells were found between the current CSV and "
+            "the peacetime baseline. Check that both files were generated as "
+            "gridded presence CSVs."
+        )
+    plot_title = (f"Comparing the vessel presence in {region.get_name()} from "
+                  f"{start} to {end} 2026 to peacetime levels")
     region_map.density(diff_gdf, value="difference",
-                       plot_title="Difference from Peacetime")
+                       plot_title=plot_title)
 
     out_path = out_path or os.path.splitext(csv_path)[0] + "_diff.png"
     region_map.save(out_path)

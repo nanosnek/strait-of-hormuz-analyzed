@@ -56,7 +56,8 @@ EVENT_DATASETS = {
 # Vessel classes GFW recognises. Note there is no "tanker" class here -- GFW
 # groups oil tankers under CARGO, and calls dedicated fuel-supply vessels
 # BUNKER. Both are worth pulling for a Hormuz study.
-VESSEL_TYPES = ["BUNKER", "CARGO", "CARRIER", "FISHING", "PASSENGER", "SUPPORT", "OTHER"]
+VESSEL_TYPES = ["BUNKER", "CARGO", "CARRIER", "FISHING", "PASSENGER",
+                "SUPPORT", "OTHER"]
 COMMERCIAL = ["CARGO", "BUNKER", "CARRIER"]
 
 TOKEN_HELP = (
@@ -116,7 +117,8 @@ class GFWSource(VesselDataSource):
             SystemExit: If no token is set, or the token is corrupted.
         """
         super().__init__(verbose)
-        self.token = token or self.require_env("GFW_API_ACCESS_TOKEN", TOKEN_HELP)
+        self.token = token or self.require_env("GFW_API_ACCESS_TOKEN",
+                                               TOKEN_HELP)
         self._check_token(self.token)
         self._client = None
 
@@ -148,14 +150,15 @@ class GFWSource(VesselDataSource):
         """
         bad = [(i, c) for i, c in enumerate(token) if not c.isascii()]
         if bad:
-            spots = ", ".join(f"position {i} (U+{ord(c):04X})" for i, c in bad[:5])
+            spots = ", ".join(f"position {i} (U+{ord(c):04X})"
+                              for i, c in bad[:5])
             sys.exit(
                 f"GFW_API_ACCESS_TOKEN contains {len(bad)} non-ASCII "
                 f"character(s): {spots}.\n"
-                "An API token is always plain ASCII, so this copy is corrupted "
-                "-- usually from copying it out of a screenshot or a chat that\n"
-                "reformatted it. Copy the token as text straight from the API "
-                "portal and paste it into .env again."
+                "An API token is always plain ASCII, so this copy is corrupted"
+                " -- usually from copying it out of a screenshot or a chat"
+                "that \n reformatted it. Copy the token as text straight from"
+                " the API portal and paste it into .env again."
             )
 
     @property
@@ -171,7 +174,8 @@ class GFWSource(VesselDataSource):
             self._client = gfwapiclient.Client(access_token=self.token)
         return self._client
 
-    def presence(self, region, start_date, end_date, temporal_resolution="DAILY",
+    def presence(self, region, start_date, end_date,
+                 temporal_resolution="DAILY",
                  group_by="FLAG", vessel_types=None, spatial_resolution="LOW",
                  spatial_aggregation=True):
         """
@@ -307,6 +311,7 @@ class GFWSource(VesselDataSource):
                 registry identifiers.
         """
         async def call():
-            return await self.client.vessels.search_vessels(query=query, limit=limit)
+            return await self.client.vessels.search_vessels(query=query,
+                                                            limit=limit)
 
         return to_records(asyncio.run(call()))

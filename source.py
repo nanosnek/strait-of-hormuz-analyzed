@@ -87,7 +87,8 @@ class VesselDataSource:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, _, value = line.partition("=")
-                    os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+                    os.environ.setdefault(key.strip(),
+                                          value.strip().strip("\"'"))
 
     def require_env(self, name, help_text):
         """
