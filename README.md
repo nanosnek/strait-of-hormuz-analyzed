@@ -4,7 +4,7 @@ Vessel traffic data collection for the Strait of Hormuz, the Persian Gulf and
 the Gulf of Oman.
 
 **Global Fishing Watch is the main source.** It's free, documented, allowed by
-its terms, and reaches back to 2012. It runs about 72 hours behind real time,
+its terms, and reaches back to 2012. It runs about four days behind real time,
 which doesn't matter for analysis.
 
 MarineTraffic is kept as a secondary source for one thing GFW can't do: a
@@ -133,8 +133,11 @@ python main.py regions                              # list the areas
 # Global Fishing Watch -- history and behaviour
 python main.py presence --days 90                   # traffic volume, day by day
 python main.py presence --days 365 --group-by FLAG  # broken down by flag state
+python main.py presence --days 90 --grid --group-by VESSEL_ID
+python main.py presence --peacetime --grid --group-by VESSEL_ID
 python main.py events --type encounter --days 90    # vessels meeting at sea
 python main.py events --type gap --days 90          # vessels going dark
+python main.py events --type encounter --peacetime  # 2022 comparison baseline
 
 # MarineTraffic -- live only, no history
 python main.py snapshot                             # what's there right now
@@ -145,7 +148,26 @@ python main.py map presence_hormuz_2026-04-30_2026-07-29.csv
 python main.py map snapshot.csv -o vessels.png
 ```
 
-Everything writes JSON and CSV side by side.
+The `presence`, `events`, and `snapshot` commands write JSON and CSV side by
+side by default. Use `--no-csv` to skip the CSV, or `-o path.json` to choose
+the JSON path. `watch` writes timestamped files into `data/` by default; use
+`--out-dir` to change that. The `peacetime` flags use the fixed 2022-01-01 to
+2022-12-31 baseline and include `peacetime_` in the output filename.
+
+### Command options
+
+All data commands accept `--region` (`hormuz`, `persian-gulf`, `oman-gulf`, or
+`all-regions`), `--all-types`, `-o`, and `--no-csv`. Presence also accepts
+`--days`, `--grid`, `--temporal-resolution`, and `--group-by`. Events accepts
+`--type` (`encounter`, `loitering`, `port_visit`, `gap`, or `fishing`) and
+`--limit`.
+
+Live `snapshot` and `watch` commands also accept `--zoom`, `--delay`,
+`--keep-small-craft`, and `--quiet`. `watch` additionally accepts
+`--interval` and `--out-dir`. Live readings show commercial traffic by
+default; `--all-types` includes other vessel types, while
+`--keep-small-craft` includes navigation aids, fishing boats, and pleasure
+craft that are normally hidden.
 
 ## Choosing a source
 
@@ -154,7 +176,7 @@ Everything writes JSON and CSV side by side.
 | Module                          | `gfw.py`             | `livemap.py`           | `data_get.py`         |
 | Credentials                     | free API token       | none                   | signed-in session     |
 | History                         | **2012 onwards**     | none — forward only    | none                  |
-| Freshness                       | ~72 h behind         | live                   | live                  |
+| Freshness                       | ~4 days behind       | live                   | live                  |
 | Position detail                 | 1/vessel/hour        | every few minutes      | current only          |
 | Encounters, loitering, AIS gaps | **yes**              | no                     | no                    |
 | IMO / MMSI / callsign           | yes                  | no                     | yes                   |
@@ -187,7 +209,7 @@ event; a positions-only source just silently lacks a row.
   cargo, bunker and carrier together.
 - **`--days` maxes out at 366.** The API rejects longer ranges; run a loop of
   yearly windows if you need more.
-- **Asking for today returns nothing** because of the ~72 h delay. `main.py`
+- **Asking for today returns nothing** because of the ~4 day delay. `main.py`
   ends every window `LATENCY_DAYS` in the past automatically.
 - **One report at a time.** Concurrent 4Wings reports return HTTP 429.
 - `--group-by` has no `VESSEL_TYPE` option, despite what the docs suggest.
@@ -224,6 +246,19 @@ So for the richest output:
 python main.py presence --days 90 --grid --group-by VESSEL_ID
 ```
 
+The mapping module also includes analysis helpers for notebook workflows:
+
+```python
+mapping.density_of_beligerents("presence.csv", "belligerents.png")
+mapping.compare_to_peacetime("presence_2026.csv", "difference.png")
+mapping.draw_path(["data/snapshot_1.csv", "data/snapshot_2.csv"],
+                  "paths.png")
+```
+
+`density_of_beligerents` makes separate US-allied and Iranian density maps.
+`compare_to_peacetime` compares a gridded presence file with the 2022
+baseline, and `draw_path` joins repeated watch snapshots into vessel paths.
+
 The two that stay empty are structural: `detections` belongs to the SAR
 dataset, and `vessel_ids` is a count, meaningless once each row is already a
 single vessel.
@@ -240,8 +275,8 @@ python main.py map presence_hormuz_2026-04-30_2026-07-29.csv
 
 It picks the map type from the columns: a file with `hours` becomes a density
 map (one coloured square per grid cell), anything else becomes a point per
-vessel, coloured by ship type. The image lands next to the CSV unless you pass
-`-o`.
+vessel or event, coloured by ship type when that column is present. The image
+lands next to the CSV unless you pass `-o`.
 
 **A presence CSV only has coordinates if you collected it with `--grid`.**
 Without that flag, `lat` and `lon` are empty and there is nothing to plot:
@@ -275,15 +310,24 @@ degrees across, and at 110m the coastline is too coarse to recognise.
 
 ```python
 import mapping, regions
+from gfw import GFWSource
 
 gdf = mapping.load_csv("presence_hormuz_2026-04-30_2026-07-29.csv")
 m = mapping.RegionMap(regions.STRAIT_OF_HORMUZ)
 m.density(gdf)                 # or m.points(gdf)
 m.save("hormuz.png")
+
+vessels = GFWSource().search_vessels("Ever Given")
 ```
 
+For departure trends, `plotting.vessel_departures_per_day("presence.csv",
+beligerents_only=True)` writes a daily unique-vessel plot and marks February
+28, 2026 when it falls within the data range. Set `beligerents_only=False` to
+plot every flag.
+
 `load_csv` returns an ordinary GeoDataFrame in EPSG:4326, so everything else
-in GeoPandas works on it normally.
+in GeoPandas works on it normally. `GFWSource.search_vessels` looks up vessels
+by name, MMSI, IMO, or callsign and returns the matching identity records.
 
 Two things about the coordinates worth knowing. The API returns float32, so
 `55.8` arrives as `55.79999923706055` — round before grouping by cell or every
@@ -331,7 +375,22 @@ livemap.py      LiveMapSource: MarineTraffic live-map tiles
 mapping.py      RegionMap: draw any collected CSV with GeoPandas
 data_get.py     MarineTraffic reports (needs a session; credentials via .env)
 json_to_csv.py  JSON -> CSV for any of the above
+plotting.py     analysis plots, including daily vessel departures
 ```
+
+### MarineTraffic reports and conversion
+
+The reports endpoint is a separate, signed-in MarineTraffic workflow. Set
+`MT_COOKIE` in `.env` (and optionally `MT_ACCESS_TOKEN`), then run:
+
+```powershell
+python data_get.py reports.json
+python json_to_csv.py reports.json reports.csv
+```
+
+`data_get.py` writes raw JSON only and may fail when the captured session
+expires. `json_to_csv.py` accepts both this endpoint's `{"data": [...]}`
+shape and the JSON arrays written by `main.py`.
 
 ## Credits
 
