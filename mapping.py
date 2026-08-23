@@ -75,6 +75,9 @@ TYPE_COLORS = {
     "Unspecified": "#bdc3c7",
 }
 
+US_BELLIGERENT = ["USA", "ISR", "SAU", "ARE", "KWT", "BHR", "YEM"]
+IRAN_BELLIGERENT = ["IRN"]
+
 
 def load_csv(path: str) -> geopandas.GeoDataFrame:
     """
@@ -201,18 +204,26 @@ class RegionMap:
         return (b.west - p, b.south - p, b.east + p, b.north + p)
 
     def base(self,
-             figsize: tuple[float, float] = (11, 9)) -> matplotlib.axes.Axes:
+             figsize: tuple[float, float] = (11, 9),
+             ax: matplotlib.axes.Axes | None = None) -> matplotlib.axes.Axes:
         """
         Start a figure with the coastline drawn, ready for data on top.
 
         Args:
             figsize (tuple[float, float]): Figure size in inches. Defaults to
                 (11, 9).
+            ax (matplotlib.axes.Axes): Draws figure onto a given axes if using
+                a subplot in a different function.
 
         Returns:
             matplotlib.axes.Axes: The axes to draw onto.
         """
-        self._figure, self._axes = plt.subplots(figsize=figsize)
+        if ax is None:
+            self._figure, self._axes = plt.subplots(figsize=figsize)
+        else:
+            self._axes = ax
+            self._figure = ax.figure
+
         west, south, east, north = self._padded_bounds()
 
         # Sea first, then land over it, so the coastline reads correctly.
@@ -237,7 +248,9 @@ class RegionMap:
     def density(self, gdf: geopandas.GeoDataFrame, value: str = "hours",
                 plot_title: str | None = None,
                 cmap: str = "YlOrRd",
-                log: bool = True) -> matplotlib.axes.Axes:
+                log: bool = True,
+                ax: matplotlib.axes.Axes | None = None
+                ) -> matplotlib.axes.Axes:
         """
         Draw gridded presence as coloured cells.
 
@@ -252,14 +265,16 @@ class RegionMap:
         Args:
             gdf (geopandas.GeoDataFrame): Rows from a `presence --grid` file.
             value (str): Column to total per cell. Defaults to "hours".
-            title (str | None): Figure title. Generated when omitted.
+            plot_title (str | None): Figure title. Generated when omitted.
             cmap (str): Matplotlib colour map. Defaults to "YlOrRd".
             log (bool): Use a logarithmic colour scale. Defaults to True.
+            ax (matplotlib.axes.Axes): supplies axes if adding to a subplot
+                in a seperate function.
 
         Returns:
             matplotlib.axes.Axes: The axes drawn onto.
         """
-        axes = self.base()
+        axes = self.base(ax=ax)
 
         if "cell_lon" in gdf.columns and "cell_lat" in gdf.columns:
             cells = gdf.copy()
@@ -514,7 +529,7 @@ def draw(
         show (bool): Open an interactive window as well. Defaults to False.
 
     Returns:
-        str: The path written.
+        str: The path to a plot.
     """
     gdf = load_csv(csv_path)
     region_map = RegionMap(region)
@@ -528,6 +543,60 @@ def draw(
     region_map.save(out_path)
     if show:
         plt.show()
+    return out_path
+
+
+def density_of_beligerents(csv_path: str,
+                           out_path: str | None = None,
+                           region: regions.BBox = regions.STRAIT_OF_HORMUZ,
+                           plot_title: str | None = None,
+                           show: bool = False) -> str:
+    """
+    Reads a CSV of presence data and returns density plots of vessels
+    associated with belligerent actions in the Strait.
+    Args:
+        csv_path (str): A CSV written by main.py.
+        out_path (str | None): Image to write. Defaults to the CSV's name
+            with a .png extension.
+        region (regions.BBox): Area to map. Defaults to the Strait of Hormuz.
+        plot_title (str): Tile is optional and given by the user. Default is
+            given in mapping functions.
+        show (bool): Open an interactive window as well. Defaults to False.
+
+    Returns:
+        str: The path to a plot.
+    """
+    gdf = load_csv(csv_path)
+    region_map = RegionMap(region)
+
+    us_gdf = gdf[gdf['flag'].isin(US_BELLIGERENT)]
+    us_plot_title = "US Allied Presence"
+
+    iran_gdf = gdf[gdf['flag'].isin(IRAN_BELLIGERENT)]
+    iran_plot_title = "Iranian Presence"
+
+    fig, [ax1, ax2] = plt.subplots(2, 1, figsize=(11, 16))
+    region_map.density(gdf=us_gdf, plot_title=us_plot_title, ax=ax1)
+    region_map.density(gdf=iran_gdf, plot_title=iran_plot_title, ax=ax2)
+
+    fig.text(
+        0.5,
+        0.99,
+        plot_title or
+        f"Belligerent Vessel Presence in the {region.get_name()} from \n"
+        f"{gdf['date'].min()} to {gdf['date'].max()}",
+        ha="center",
+        va="top",
+        fontsize=16,
+        rotation=0,
+    )
+    fig.subplots_adjust(top=0.94, hspace=0.25)
+    out_path = out_path or os.path.splitext(csv_path)[0] + "_belligerents.png"
+    fig.savefig(out_path, dpi=150, bbox_inches='tight')
+
+    if show:
+        plt.show()
+    plt.close(fig)
     return out_path
 
 
